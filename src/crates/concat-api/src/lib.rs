@@ -51,8 +51,8 @@ use concat_project::Command;
 use concat_project::model::VideoSettings;
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, PackageInfo, PackageWritten, ParamInfo,
-    Picture, Reply, Request, Response, Started, VersionInfo, Written,
+    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, PackageInfo,
+    PackageWritten, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the

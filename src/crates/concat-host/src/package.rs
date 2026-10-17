@@ -107,10 +107,10 @@ pub fn export(
 
         // Best effort: a package without a preview opens all the same.
         let preview = Path::new(project_path).join("cache").join(PREVIEW);
-        if let Ok(bytes) = std::fs::read(&preview) {
-            if zip.start_file(PREVIEW, stored()).is_ok() {
-                let _ = zip.write_all(&bytes);
-            }
+        if let Ok(bytes) = std::fs::read(&preview)
+            && zip.start_file(PREVIEW, stored()).is_ok()
+        {
+            let _ = zip.write_all(&bytes);
         }
         Ok(packed.count)
     })();
@@ -139,7 +139,9 @@ pub fn export(
         let _ = std::fs::remove_file(&temporary);
         format!("could not write {}: {error}", output.display())
     })?;
-    let bytes = std::fs::metadata(output).map(|meta| meta.len()).unwrap_or(0);
+    let bytes = std::fs::metadata(output)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
     Ok(Exported {
         path: output.to_path_buf(),
         files: count,
@@ -194,7 +196,8 @@ impl Packer {
         // as small and many times faster, which matters on a phone.
         zip.start_file(packed.as_str(), stored())
             .map_err(|error| format!("could not add {source}: {error}"))?;
-        std::io::copy(&mut input, zip).map_err(|error| format!("could not add {source}: {error}"))?;
+        std::io::copy(&mut input, zip)
+            .map_err(|error| format!("could not add {source}: {error}"))?;
 
         self.taken.insert(packed.clone(), ());
         self.seen.insert(source.to_owned(), packed.clone());
@@ -226,9 +229,12 @@ pub fn import(package: &Path, location: &str) -> Result<projects::ProjectInfo, S
         .map_err(|error| format!("{} is not a Concat package: {error}", package.display()))?;
 
     let mut document: Value = {
-        let mut entry = archive
-            .by_name(DOCUMENT)
-            .map_err(|_| format!("{} is not a Concat package: it has no {DOCUMENT}", package.display()))?;
+        let mut entry = archive.by_name(DOCUMENT).map_err(|_| {
+            format!(
+                "{} is not a Concat package: it has no {DOCUMENT}",
+                package.display()
+            )
+        })?;
         let mut bytes = Vec::new();
         entry
             .read_to_end(&mut bytes)
@@ -278,8 +284,9 @@ pub fn import(package: &Path, location: &str) -> Result<projects::ProjectInfo, S
             }
         }
 
-        let mut editor = Editor::from_document(&document)
-            .ok_or("this package holds a project this build cannot read (made by a newer Concat?)")?;
+        let mut editor = Editor::from_document(&document).ok_or(
+            "this package holds a project this build cannot read (made by a newer Concat?)",
+        )?;
         let catalogue = concat_effects::Catalogue::builtin();
         editor.upgrade_links(|link| catalogue.upgrade(link));
         let settings = DocumentSettings {
@@ -357,7 +364,10 @@ fn unpack<R: Read + std::io::Seek>(archive: &mut ZipArchive<R>, root: &Path) -> 
             continue;
         }
         let Some(relative) = entry.enclosed_name().filter(|path| is_plain(path)) else {
-            return Err(format!("the package holds an unsafe file name: {}", entry.name()));
+            return Err(format!(
+                "the package holds an unsafe file name: {}",
+                entry.name()
+            ));
         };
         let destination = root.join(relative);
         if let Some(parent) = destination.parent() {
@@ -466,7 +476,10 @@ mod tests {
         assert_eq!(paths[0], paths[2]);
         assert_ne!(paths[0], paths[1]);
         for path in &paths {
-            assert!(path.starts_with(&project.path), "{path} is not inside the project");
+            assert!(
+                path.starts_with(&project.path),
+                "{path} is not inside the project"
+            );
         }
         assert_eq!(std::fs::read(&paths[0]).unwrap(), b"first");
         assert_eq!(std::fs::read(&paths[1]).unwrap(), b"second");

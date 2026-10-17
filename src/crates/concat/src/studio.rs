@@ -7697,10 +7697,9 @@ impl Studio {
         let published = crate::platform::publish_package(exported.path.clone(), move |result| {
             crate::host::on_ui(move |studio, _, _| match result {
                 Ok(place) => studio.notify(&tf("studio.exportedPackage", &[&place, &size]), false),
-                Err(error) => studio.notify(
-                    &tf("studio.packageStayed", &[&fallback, &error]),
-                    true,
-                ),
+                Err(error) => {
+                    studio.notify(&tf("studio.packageStayed", &[&fallback, &error]), true)
+                }
             });
         });
         if !published {
