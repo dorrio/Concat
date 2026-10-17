@@ -102,7 +102,9 @@ impl Summary {
         self.files
             .iter()
             .filter(|file| !file.used)
-            .fold((0, 0), |(count, bytes), file| (count + 1, bytes + file.bytes))
+            .fold((0, 0), |(count, bytes), file| {
+                (count + 1, bytes + file.bytes)
+            })
     }
 
     /// Names of the files that would go in but are not on disk.

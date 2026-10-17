@@ -47,8 +47,8 @@ mod platform;
 /// `platform::publish_export`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{
-    ExportPublisher, FilePicker, install_export_publisher, install_file_picker,
-    PackageSaver, install_package_picker, install_package_publisher, install_package_saver,
+    ExportPublisher, FilePicker, PackageSaver, install_export_publisher, install_file_picker,
+    install_package_picker, install_package_publisher, install_package_saver,
 };
 mod panes;
 mod prefs;

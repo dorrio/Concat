@@ -320,7 +320,11 @@ pub fn sweep_unused(shared: &Path, roots: &[PathBuf], config: &Path) -> (usize, 
         .collect();
     for root in roots {
         if let Ok(children) = std::fs::read_dir(root) {
-            folders.extend(children.filter_map(|child| child.ok()).map(|child| child.path()));
+            folders.extend(
+                children
+                    .filter_map(|child| child.ok())
+                    .map(|child| child.path()),
+            );
         }
     }
     let mut used: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
@@ -578,7 +582,7 @@ mod tests {
         document["media"] = serde_json::json!([{ "id": "m1", "path": kept.to_string_lossy() }]);
         save(&info.path, &document).unwrap();
 
-        let (count, bytes) = sweep_unused(&shared, &[location.clone()], &config);
+        let (count, bytes) = sweep_unused(&shared, std::slice::from_ref(&location), &config);
         assert_eq!((count, bytes), (1, 7));
         assert!(kept.is_file());
         assert!(!orphan.exists());

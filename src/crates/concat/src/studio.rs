@@ -2301,11 +2301,9 @@ impl Studio {
     /// Deletes a project folder from the device, closing it first if it is
     /// this window's; refused while the remote API holds it.
     fn delete_project(&mut self, path: &str, name: &str) {
-        if self
-            .session
-            .as_ref()
-            .is_some_and(|session| std::path::Path::new(session.path()) == std::path::Path::new(path))
-        {
+        if self.session.as_ref().is_some_and(|session| {
+            std::path::Path::new(session.path()) == std::path::Path::new(path)
+        }) {
             self.close_project();
         } else if self.host.open_projects.holder(path).is_some() {
             self.notify(&t("studio.projectOpenThroughRemote"), true);
@@ -7881,9 +7879,17 @@ impl Studio {
             unused_note: if unused == 0 {
                 SharedString::new()
             } else if only {
-                tf("studio.packageUnusedLeftOut", &[&unused, &size(unused_bytes)]).into()
+                tf(
+                    "studio.packageUnusedLeftOut",
+                    &[&unused, &size(unused_bytes)],
+                )
+                .into()
             } else {
-                tf("studio.packageUnusedIncluded", &[&unused, &size(unused_bytes)]).into()
+                tf(
+                    "studio.packageUnusedIncluded",
+                    &[&unused, &size(unused_bytes)],
+                )
+                .into()
             },
             missing_note: if missing.is_empty() {
                 SharedString::new()
@@ -8084,10 +8090,9 @@ impl Studio {
             .join(projects::folder_name(name))
             .to_string_lossy()
             .into_owned();
-        let ours = self
-            .session
-            .as_ref()
-            .is_some_and(|session| std::path::Path::new(session.path()) == std::path::Path::new(&target));
+        let ours = self.session.as_ref().is_some_and(|session| {
+            std::path::Path::new(session.path()) == std::path::Path::new(&target)
+        });
         if ours {
             self.close_project();
         } else if self.host.open_projects.holder(&target).is_some() {
