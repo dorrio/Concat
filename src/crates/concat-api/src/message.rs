@@ -117,6 +117,9 @@ pub enum Request {
         path: String,
         /// The zip to write.
         output: String,
+        /// Leave out media no clip uses.
+        #[serde(default)]
+        only_used: bool,
     },
     /// Unpacks a project package into a new project folder under
     /// `location` and opens it, as `project.open` does.

@@ -317,9 +317,13 @@ impl Api {
                 self.save(&path, name.as_deref())?;
                 Ok(Reply::Done(Done {}))
             }
-            Request::ProjectExportPackage { path, output } => {
-                Ok(Reply::Package(self.export_package(&path, &output)?))
-            }
+            Request::ProjectExportPackage {
+                path,
+                output,
+                only_used,
+            } => Ok(Reply::Package(
+                self.export_package(&path, &output, only_used)?,
+            )),
             Request::ProjectImportPackage { package, location } => {
                 view(self.import_package(&package, &location)?)
             }
@@ -501,7 +505,12 @@ impl Api {
     }
 
     /// [`Request::ProjectExportPackage`].
-    pub fn export_package(&self, path: &str, output: &str) -> Result<PackageWritten, ApiError> {
+    pub fn export_package(
+        &self,
+        path: &str,
+        output: &str,
+        only_used: bool,
+    ) -> Result<PackageWritten, ApiError> {
         self.writable(output)?;
         let session = self.session(path)?;
         let written = package::export(
@@ -509,6 +518,7 @@ impl Api {
             &session.settings(),
             session.path(),
             Path::new(output),
+            only_used,
         )
         .map_err(ApiError::failed)?;
         Ok(PackageWritten {

@@ -780,6 +780,8 @@ pub struct Studio {
     pub relink: crate::panes::relink::RelinkPane,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
+    /// The summary before packing a project for another device, while up.
+    pub package_sheet: Option<PackageSheet>,
     /// The clip whose incoming transition is selected, while no clip is:
     /// a transition is picked on its own, not as part of the clip it rides
     /// into. Read through [`Studio::selected_transition`], which holds it
@@ -1876,6 +1878,28 @@ fn few(names: &[String]) -> String {
     }
 }
 
+/// The summary sheet shown before a project is packed for another device,
+/// and everything the pack needs once the person says go.
+pub struct PackageSheet {
+    summary: package::Summary,
+    /// Leave out media no timeline uses.
+    only_used: bool,
+    document: serde_json::Value,
+    settings: concat_project::DocumentSettings,
+    project_path: String,
+    /// The active timeline's length, for the sheet's details line.
+    duration: f64,
+}
+
+/// One pack, on its way to a worker.
+#[derive(Clone)]
+struct PackageJob {
+    document: serde_json::Value,
+    settings: concat_project::DocumentSettings,
+    project_path: String,
+    only_used: bool,
+}
+
 /// What the confirmation sheet can ask about.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Confirm {
@@ -2109,6 +2133,7 @@ impl Studio {
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
             confirm: None,
+            package_sheet: None,
             transition_selected: None,
             open_menu: -1,
             menu_bar_token: 0,
@@ -7662,10 +7687,10 @@ impl Studio {
     /// carry it to another device - a phone, another computer - and go on
     /// editing there; see `concat_host::package`.
     ///
-    /// A desktop asks where to write it. A phone has no such dialog: the
-    /// package is written beside the projects and then moved into the
-    /// phone's Download/Concat, where a file manager, the share sheet and a
-    /// USB cable all find it.
+    /// First the summary sheet: what goes in, how many files and how big,
+    /// with the unused ones left out unless asked for. Then where to save:
+    /// a desktop's save dialog, a phone's "create document" picker (Drive,
+    /// Downloads, a USB stick...).
     pub fn export_package(&mut self) {
         if self.session.is_none() {
             return;
@@ -7675,21 +7700,190 @@ impl Studio {
         let Some(session) = self.session.as_ref() else {
             return;
         };
-        let document = session.document();
-        let settings = session.settings();
-        let path = session.path().to_owned();
-        let suggested = package::file_name(&self.project_name);
-        let folder = std::path::Path::new(&path)
+        let sheet = (
+            session.document(),
+            session.settings(),
+            session.path().to_owned(),
+        );
+        self.open_package_sheet(sheet.0, sheet.1, sheet.2);
+    }
+
+    /// [`Studio::export_package`] for a project on the launch screen's list,
+    /// without opening it: its saved document is what is packed.
+    pub fn export_package_of(&mut self, path: &str) {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.path() == path)
+        {
+            self.export_package();
+            return;
+        }
+        let read = projects::open(path).and_then(|info| {
+            let document = projects::read_document(path)?
+                .ok_or_else(|| format!("{path} has no project in it"))?;
+            Ok((info, document))
+        });
+        match read {
+            Ok((info, document)) => {
+                let settings = concat_project::DocumentSettings {
+                    name: info.name,
+                    width: info.width,
+                    height: info.height,
+                    rate_num: info.rate_num,
+                    rate_den: info.rate_den,
+                };
+                self.open_package_sheet(document, settings, path.to_owned());
+            }
+            Err(error) => self.notify(&error, true),
+        }
+    }
+
+    fn open_package_sheet(
+        &mut self,
+        document: serde_json::Value,
+        settings: concat_project::DocumentSettings,
+        project_path: String,
+    ) {
+        match package::summarize(&document) {
+            Ok(summary) => {
+                let duration = concat_project::from_document(&document)
+                    .map(|project| {
+                        project
+                            .timelines
+                            .iter()
+                            .find(|timeline| timeline.id == project.active_timeline_id)
+                            .or_else(|| project.timelines.first())
+                            .map_or(0.0, |timeline| {
+                                timeline
+                                    .clips
+                                    .iter()
+                                    .map(|clip| clip.start + clip.duration)
+                                    .fold(0.0, f64::max)
+                            })
+                    })
+                    .unwrap_or(0.0);
+                self.package_sheet = Some(PackageSheet {
+                    only_used: summary.unused().0 > 0,
+                    summary,
+                    document,
+                    settings,
+                    project_path,
+                    duration,
+                });
+            }
+            Err(error) => self.notify(&error, true),
+        }
+    }
+
+    /// The summary sheet, as Slint shows it.
+    fn package_sheet_data(&self) -> crate::ui::PackageData {
+        let Some(sheet) = &self.package_sheet else {
+            return crate::ui::PackageData::default();
+        };
+        let summary = &sheet.summary;
+        let only = sheet.only_used;
+        let size = |bytes: u64| crate::format::bytes(bytes as f32);
+        let seconds = sheet.duration.max(0.0).round() as u64;
+        let rate = sheet.settings.rate_num as f64 / sheet.settings.rate_den.max(1) as f64;
+        let (unused, unused_bytes) = summary.unused();
+        let missing = summary.missing(only);
+        crate::ui::PackageData {
+            open: true,
+            name: sheet.settings.name.clone().into(),
+            details: format!(
+                "{} × {} · {} fps · {}:{:02}",
+                sheet.settings.width,
+                sheet.settings.height,
+                (rate * 100.0).round() / 100.0,
+                seconds / 60,
+                seconds % 60
+            )
+            .into(),
+            files: slint::ModelRc::new(VecModel::from(
+                summary
+                    .files
+                    .iter()
+                    .map(|file| crate::ui::PackageFileItem {
+                        name: file.name.clone().into(),
+                        size: size(file.bytes).into(),
+                        unused: !file.used,
+                        missing: file.missing,
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            total: tf(
+                "studio.packageTotal",
+                &[&summary.count(only), &size(summary.bytes(only))],
+            )
+            .into(),
+            unused_note: if unused == 0 {
+                SharedString::new()
+            } else if only {
+                tf("studio.packageUnusedLeftOut", &[&unused, &size(unused_bytes)]).into()
+            } else {
+                tf("studio.packageUnusedIncluded", &[&unused, &size(unused_bytes)]).into()
+            },
+            missing_note: if missing.is_empty() {
+                SharedString::new()
+            } else {
+                tf("studio.packageMissingFiles", &[&missing.join(", ")]).into()
+            },
+            only_used: only,
+            has_unused: unused > 0,
+        }
+    }
+
+    /// The sheet's switch.
+    pub fn package_only_used(&mut self, on: bool) {
+        if let Some(sheet) = self.package_sheet.as_mut() {
+            sheet.only_used = on;
+        }
+    }
+
+    /// The sheet's "Choose where to save…": asks where, then packs.
+    pub fn package_save(&mut self) {
+        let Some(sheet) = self.package_sheet.take() else {
+            return;
+        };
+        let suggested = package::file_name(&sheet.settings.name);
+        let folder = std::path::Path::new(&sheet.project_path)
             .parent()
             .map(std::path::Path::to_path_buf)
-            .unwrap_or_else(|| std::path::PathBuf::from(&path));
+            .unwrap_or_else(|| std::path::PathBuf::from(&sheet.project_path));
+        let job = PackageJob {
+            document: sheet.document,
+            settings: sheet.settings,
+            project_path: sheet.project_path,
+            only_used: sheet.only_used,
+        };
+
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            // The phone's own picker says where; the package is written in
+            // the app's folder first and copied there. Without a picker
+            // (an old phone) it goes to Download/Concat as before.
+            let scratch = folder.join(&suggested);
+            let asked = {
+                let scratch = scratch.clone();
+                let job = job.clone();
+                crate::platform::ask_package_destination(&suggested, move |destination| {
+                    if let Some(destination) = destination {
+                        crate::host::on_ui(move |studio, _, _| {
+                            studio.write_package(job, scratch, Some(destination));
+                        });
+                    }
+                })
+            };
+            if !asked {
+                self.write_package(job, scratch, None);
+            }
+            return;
+        }
+
         let title = t("studio.exportPackage");
         let family = t("studio.concatPackage");
         crate::host::after_dialog(
             move || {
-                if cfg!(any(target_os = "android", target_os = "ios")) {
-                    return Some(folder.join(&suggested));
-                }
                 let chosen = crate::platform::save_file(
                     &title,
                     &folder,
@@ -7707,15 +7901,46 @@ impl Studio {
                     },
                 )
             },
-            move |studio, _, _, output| {
-                studio.notify(&t("studio.exportingPackage"), false);
-                spawn(
-                    move || package::export(&document, &settings, &path, &output),
-                    |studio, _, _, result| match result {
-                        Ok(exported) => studio.package_written(exported),
-                        Err(error) => studio.notify(&error, true),
-                    },
-                );
+            move |studio, _, _, output| studio.write_package(job, output, None),
+        );
+    }
+
+    /// Packs `job` into `output`; on a phone, then hands it to where the
+    /// person chose (`destination`, a document the picker made) or, with
+    /// none, to Download/Concat.
+    fn write_package(
+        &mut self,
+        job: PackageJob,
+        output: std::path::PathBuf,
+        destination: Option<String>,
+    ) {
+        self.notify(&t("studio.exportingPackage"), false);
+        spawn(
+            move || {
+                let exported = package::export(
+                    &job.document,
+                    &job.settings,
+                    &job.project_path,
+                    &output,
+                    job.only_used,
+                )?;
+                match destination {
+                    Some(destination) => {
+                        let written =
+                            crate::platform::write_package_to(&exported.path, &destination);
+                        let _ = std::fs::remove_file(&exported.path);
+                        written.map(|place| (exported, Some(place)))
+                    }
+                    None => Ok((exported, None)),
+                }
+            },
+            |studio, _, _, result| match result {
+                Ok((exported, Some(place))) => {
+                    let size = crate::format::bytes(exported.bytes as f32);
+                    studio.notify(&tf("studio.exportedPackage", &[&place, &size]), false);
+                }
+                Ok((exported, None)) => studio.package_written(exported),
+                Err(error) => studio.notify(&error, true),
             },
         );
     }
@@ -9662,6 +9887,7 @@ impl Studio {
         sync(&models.version_details, self.settings.version_details());
         app.set_relink(self.relink.data());
         app.set_confirm(self.confirm_data());
+        app.set_package_sheet(self.package_sheet_data());
 
         // The speech sheets, and the lists they choose from.
         let transcribers = installed(&self.settings.transcribers);

@@ -25,6 +25,7 @@ import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
 import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
 import { RelinkDialog, RelinkData, MissingMediaItem } from "dialogs/relink.slint";
+import { PackageDialog, PackageData, PackageFileItem } from "dialogs/package.slint";
 import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
@@ -158,6 +159,7 @@ export component App inherits Window {
     callback start-open();
     callback start-open-recent(path: string);
     callback start-forget-recent(path: string);
+    callback start-export-recent(path: string);
     callback start-dismiss-error();
 
     // Title bar. The drag/maximize pair must be handled in main.rs — a window
@@ -667,6 +669,7 @@ export component App inherits Window {
                 open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }
+                export-recent(path) => { root.start-export-recent(path); }
             }
 
             // Everything the workspace shows now reads the Editor global, so
@@ -817,6 +820,12 @@ export component App inherits Window {
     callback relink-all();
     callback relink-dismiss();
 
+    // The summary before a project is packed for another device.
+    in property <PackageData> package-sheet;
+    callback package-only-used(on: bool);
+    callback package-save();
+    callback package-dismiss();
+
     ProjectDialog {
         fill: root.sheets-fill;
         inset-top: root.safe-area-insets.top;
@@ -849,6 +858,18 @@ export component App inherits Window {
         data: root.relink;
         relink-all => { root.relink-all(); }
         dismiss => { root.relink-dismiss(); }
+    }
+
+    PackageDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
+        data: root.package-sheet;
+        only-used-toggled(on) => { root.package-only-used(on); }
+        save => { root.package-save(); }
+        dismiss => { root.package-dismiss(); }
     }
 
     // A question before something is thrown away, over the workspace;

@@ -189,8 +189,16 @@ mod java {
                 super::picker::files_picked as *mut c_void,
             )
         };
+        // SAFETY: as above, for `savePicked(String)`.
+        let saved = unsafe {
+            jni::NativeMethod::from_raw_parts(
+                jni_str!("savePicked"),
+                jni_str!("(Ljava/lang/String;)V"),
+                super::saver::save_picked as *mut c_void,
+            )
+        };
         // SAFETY: as above.
-        unsafe { env.register_native_methods(&class, &[method]) }?;
+        unsafe { env.register_native_methods(&class, &[method, saved]) }?;
         env.new_global_ref(class)
     }
 }
@@ -295,6 +303,123 @@ mod picker {
         };
         if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
             pending(paths);
+        }
+    }
+}
+
+/// Where an exported project package is saved: the system's "create
+/// document" picker, then a copy into the document it made.
+#[cfg(target_os = "android")]
+mod saver {
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    use jni::objects::{JObjectArray, JString};
+    use jni::refs::Reference;
+    use jni::{JavaVM, jni_sig, jni_str, sys};
+    use slint::android::AndroidApp;
+
+    type Answer = Box<dyn FnOnce(Option<String>) + Send>;
+
+    /// The question in flight, waiting for Java to answer.
+    static PENDING: Mutex<Option<Answer>> = Mutex::new(None);
+
+    /// Hands the window's crate the picker and the copy.
+    pub fn install(app: &AndroidApp) {
+        let ask_app = app.clone();
+        let write_app = app.clone();
+        concat::install_package_saver(concat::PackageSaver {
+            ask: Box::new(move |name, on_answer| {
+                let previous = PENDING
+                    .lock()
+                    .map(|mut slot| slot.replace(on_answer))
+                    .ok()
+                    .flatten();
+                if let Some(previous) = previous {
+                    previous(None);
+                }
+                if let Err(error) = ask(&ask_app, name) {
+                    log::error!("could not show the save picker: {error}");
+                    if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
+                        pending(None);
+                    }
+                }
+            }),
+            write: Box::new(move |path, uri| write(&write_app, path, uri)),
+        });
+    }
+
+    fn ask(app: &AndroidApp, name: &str) -> jni::errors::Result<()> {
+        super::java::with_class(app, |env, activity, class| {
+            let name = env.new_string(name)?;
+            let mime = env.new_string("application/zip")?;
+            env.call_static_method(
+                class,
+                jni_str!("saveAs"),
+                jni_sig!("(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)V"),
+                &[activity.into(), (&name).into(), (&mime).into()],
+            )?;
+            Ok(())
+        })
+    }
+
+    fn write(app: &AndroidApp, path: &Path, uri: &str) -> Result<String, String> {
+        let answer = super::java::with_class(app, |env, activity, class| {
+            let path = env.new_string(path.to_string_lossy())?;
+            let uri = env.new_string(uri)?;
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("copyToUri"),
+                    jni_sig!(
+                        "(Landroid/app/Activity;Ljava/lang/String;Ljava/lang/String;)[Ljava/lang/String;"
+                    ),
+                    &[activity.into(), (&path).into(), (&uri).into()],
+                )?
+                .l()?;
+            let answer = env.cast_local::<JObjectArray<JString>>(answer)?;
+            let mut out = Vec::new();
+            for index in 0..answer.len(env)? {
+                let item = answer.get_element(env, index)?;
+                out.push(if item.is_null() {
+                    None
+                } else {
+                    Some(item.mutf8_chars(env)?.to_string())
+                });
+            }
+            Ok(out)
+        })
+        .map_err(|error| format!("could not save the package: {error}"))?;
+        match answer.as_slice() {
+            [Some(name), _] => Ok(name.clone()),
+            [None, Some(why)] => Err(why.clone()),
+            _ => Err("the phone said nothing".to_owned()),
+        }
+    }
+
+    /// `ConcatFiles.savePicked`, on the UI thread.
+    pub(super) unsafe extern "system" fn save_picked(
+        _env: *mut sys::JNIEnv,
+        _class: sys::jclass,
+        uri: sys::jstring,
+    ) {
+        let read = if uri.is_null() {
+            Ok(None)
+        } else {
+            JavaVM::singleton().and_then(|vm| {
+                vm.attach_current_thread(|env| {
+                    // SAFETY: `uri` is the argument Java handed this frame.
+                    let uri = unsafe { JString::from_raw(env, uri) };
+                    Ok::<_, jni::errors::Error>(Some(uri.mutf8_chars(env)?.to_string()))
+                })
+            })
+        };
+        let uri = read.unwrap_or_else(|error| {
+            log::error!("could not read the chosen place: {error}");
+            None
+        });
+        if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
+            pending(uri);
         }
     }
 }
@@ -454,6 +579,7 @@ fn android_main(app: slint::android::AndroidApp) {
     // After the backend, which seeds the JavaVM the Java is reached by.
     picker::install(&app);
     publisher::install(&app);
+    saver::install(&app);
     if let Err(error) = concat::run() {
         log::error!("{error}");
     }

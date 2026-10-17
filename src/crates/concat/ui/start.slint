@@ -862,6 +862,8 @@ component PosterCard inherits Rectangle {
 
     callback opened();
     callback forgotten();
+    /// Pack this project for another device, without opening it.
+    callback exported();
 
     property <bool> lit: touch.has-hover && root.enabled;
     property <bool> forgettable: root.touchy || touch.has-hover;
@@ -934,6 +936,30 @@ component PosterCard inherits Rectangle {
                     clicked => { root.forgotten(); }
                 }
             }
+
+            // Its twin in the other corner: carry this project to another
+            // device, from the list, without opening it first.
+            if root.forgettable: Rectangle {
+                x: 6px;
+                y: 6px;
+                width: 24px;
+                height: 24px;
+                border-radius: self.width / 2;
+                background: share.has-hover ? Theme.launch-field-active : Theme.overlay;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.export;
+                    size: 11px;
+                    tint: share.has-hover ? Theme.fg : Theme.fg-muted;
+                }
+
+                share := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.exported(); }
+                }
+            }
         }
 
         VerticalLayout {
@@ -985,6 +1011,7 @@ component ProjectsGrid inherits Rectangle {
     callback compose();
     callback opened(path: string);
     callback forgotten(path: string);
+    callback exported(path: string);
 
     property <length> gap: 14px;
     property <length> min-card: 210px;
@@ -1032,6 +1059,7 @@ component ProjectsGrid inherits Rectangle {
         touchy: root.touchy;
         opened => { root.opened(project.path); }
         forgotten => { root.forgotten(project.path); }
+        exported => { root.exported(project.path); }
     }
 }
 
@@ -1048,6 +1076,8 @@ export component StartScreen inherits Rectangle {
     callback open();
     callback open-recent(path: string);
     callback forget-recent(path: string);
+    /// Pack a listed project for another device.
+    callback export-recent(path: string);
     callback open-settings();
     /// Unpack a project package made on this or another device.
     callback import-package();
@@ -1202,6 +1232,7 @@ export component StartScreen inherits Rectangle {
                         compose => { root.compose(); }
                         opened(path) => { root.open-recent(path); }
                         forgotten(path) => { root.forget-recent(path); }
+                        exported(path) => { root.export-recent(path); }
                     }
                 }
             }

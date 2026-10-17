@@ -48,7 +48,7 @@ mod platform;
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{
     ExportPublisher, FilePicker, install_export_publisher, install_file_picker,
-    install_package_picker, install_package_publisher,
+    PackageSaver, install_package_picker, install_package_publisher, install_package_saver,
 };
 mod panes;
 mod prefs;
@@ -578,6 +578,18 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_start_forget_recent(on_window!(|state, path: SharedString| {
         state.handle(Msg::Start(StartMsg::ForgetRecent(path.to_string())));
+    }));
+    app.on_start_export_recent(on_window!(|state, path: SharedString| {
+        state.export_package_of(&path);
+    }));
+    app.on_package_only_used(on_window!(|state, on: bool| {
+        state.package_only_used(on);
+    }));
+    app.on_package_save(on_window!(|state| {
+        state.package_save();
+    }));
+    app.on_package_dismiss(on_window!(|state| {
+        state.package_sheet = None;
     }));
 
     // ── the workspace's arrangement ──

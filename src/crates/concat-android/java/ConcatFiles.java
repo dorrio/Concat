@@ -51,6 +51,7 @@ import java.util.List;
  */
 public class ConcatFiles extends Fragment {
     private static final int REQUEST_PICK = 0xC0C4;
+    private static final int REQUEST_SAVE = 0xC0C5;
     private static final String TAG = "concat-files";
 
     /**
@@ -210,8 +211,94 @@ public class ConcatFiles extends Fragment {
         });
     }
 
+    /** Registered from Rust: the document the save picker made, or null. */
+    public static native void savePicked(String uri);
+
+    /**
+     * Asks where to save a file called {@code name}: the system's "create
+     * document" picker, which can put it in Downloads, on a cloud drive or
+     * on a USB stick. The answer is {@link #savePicked}. From any thread.
+     */
+    public static void saveAs(final Activity activity, final String name, final String mime) {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                ConcatFiles fragment = new ConcatFiles();
+                activity.getFragmentManager()
+                        .beginTransaction()
+                        .add(fragment, TAG)
+                        .commitAllowingStateLoss();
+                activity.getFragmentManager().executePendingTransactions();
+
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType(mime);
+                intent.putExtra(Intent.EXTRA_TITLE, name);
+                try {
+                    fragment.startActivityForResult(intent, REQUEST_SAVE);
+                } catch (Exception e) {
+                    fragment.leave();
+                    savePicked(null);
+                }
+            }
+        });
+    }
+
+    /**
+     * Copies the file at {@code path} into the document {@code uri} names
+     * and deletes the original. Two strings come back, as from
+     * {@link #publishVideo}: the document's name and null, or null and why.
+     * Blocking: called off the window's thread.
+     */
+    public static String[] copyToUri(Activity activity, String path, String uri) {
+        Uri target = Uri.parse(uri);
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            in = new FileInputStream(new File(path));
+            out = activity.getContentResolver().openOutputStream(target, "w");
+            if (out == null) {
+                throw new IOException("the chosen place would not open for writing");
+            }
+            byte[] buffer = new byte[1 << 16];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                out.write(buffer, 0, read);
+            }
+            out.close();
+            out = null;
+        } catch (Exception e) {
+            return new String[] {null, e.getMessage() == null ? e.toString() : e.getMessage()};
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (IOException ignored) {
+            }
+            try {
+                if (out != null) out.close();
+            } catch (IOException ignored) {
+            }
+        }
+        new File(path).delete();
+        return new String[] {displayName(activity, target), null};
+    }
+
+    /** Takes this headless fragment off the activity. */
+    private void leave() {
+        try {
+            getFragmentManager().beginTransaction().remove(this).commitAllowingStateLoss();
+        } catch (Exception ignored) {
+        }
+    }
+
     @Override
     public void onActivityResult(int request, int result, Intent data) {
+        if (request == REQUEST_SAVE) {
+            leave();
+            Uri uri = result == Activity.RESULT_OK && data != null ? data.getData() : null;
+            savePicked(uri == null ? null : uri.toString());
+            return;
+        }
         if (request != REQUEST_PICK) {
             return;
         }

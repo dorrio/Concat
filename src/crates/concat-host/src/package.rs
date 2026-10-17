@@ -59,6 +59,111 @@ pub fn file_name(name: &str) -> String {
     format!("{}.concat.{EXTENSION}", projects::folder_name(name))
 }
 
+/// One file a package would carry, for the summary shown before exporting.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackedFile {
+    /// The file's name.
+    pub name: String,
+    /// Its size in bytes; 0 when it is missing.
+    pub bytes: u64,
+    /// A clip on some timeline uses it (fonts always count as used).
+    pub used: bool,
+    /// The file is not on disk: the export would fail on it.
+    pub missing: bool,
+}
+
+/// What a package of a project would hold, before anything is written.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Summary {
+    /// Every file, once each, in the bin's order, fonts last.
+    pub files: Vec<PackedFile>,
+}
+
+impl Summary {
+    /// The files that would go in, with or without the unused ones.
+    pub fn included(&self, only_used: bool) -> impl Iterator<Item = &PackedFile> {
+        self.files
+            .iter()
+            .filter(move |file| file.used || !only_used)
+    }
+
+    /// How many files would go in.
+    pub fn count(&self, only_used: bool) -> usize {
+        self.included(only_used).count()
+    }
+
+    /// Their size in bytes - about the package's, since media is stored.
+    pub fn bytes(&self, only_used: bool) -> u64 {
+        self.included(only_used).map(|file| file.bytes).sum()
+    }
+
+    /// The files no timeline uses: how many, and how big.
+    pub fn unused(&self) -> (usize, u64) {
+        self.files
+            .iter()
+            .filter(|file| !file.used)
+            .fold((0, 0), |(count, bytes), file| (count + 1, bytes + file.bytes))
+    }
+
+    /// Names of the files that would go in but are not on disk.
+    pub fn missing(&self, only_used: bool) -> Vec<String> {
+        self.included(only_used)
+            .filter(|file| file.missing)
+            .map(|file| file.name.clone())
+            .collect()
+    }
+}
+
+/// Lists what [`export`] would pack, by looking at the files only: quick
+/// enough to run before the summary sheet shows.
+pub fn summarize(document: &Value) -> Result<Summary, String> {
+    let Some(project) = concat_project::from_document(document) else {
+        return Err("the open project is not a document this build can read".to_owned());
+    };
+    let used = used_media(&project);
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut summary = Summary::default();
+    let mut add = |path: &str, used: bool| {
+        if let Some(&index) = seen.get(path) {
+            let file: &mut PackedFile = &mut summary.files[index];
+            file.used |= used;
+            return;
+        }
+        let meta = std::fs::metadata(path).ok().filter(|meta| meta.is_file());
+        seen.insert(path.to_owned(), summary.files.len());
+        summary.files.push(PackedFile {
+            name: Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.to_owned()),
+            bytes: meta.as_ref().map_or(0, std::fs::Metadata::len),
+            used,
+            missing: meta.is_none(),
+        });
+    };
+    for item in &project.media {
+        if item.placeholder && item.path.is_empty() {
+            continue;
+        }
+        add(&item.path, used.contains(&item.id));
+    }
+    for font in &project.fonts {
+        add(&font.path, true);
+    }
+    Ok(summary)
+}
+
+/// The ids of the media some clip on some timeline uses.
+fn used_media(project: &concat_project::model::Project) -> std::collections::HashSet<String> {
+    project
+        .timelines
+        .iter()
+        .flat_map(|timeline| timeline.clips.iter())
+        .map(|clip| clip.media_id.clone())
+        .filter(|id| !id.is_empty())
+        .collect()
+}
+
 /// Packs the given document - the open project's, straight from its session
 /// - into a package at `output`.
 ///
@@ -67,17 +172,27 @@ pub fn file_name(name: &str) -> String {
 /// on the other side as a project full of holes, so a missing file is an
 /// error that names it, not a warning. Placeholder media (an unfilled
 /// template slot) has no file and travels as it is.
+///
+/// With `only_used`, media no clip on any timeline uses is left out - of the
+/// package and of its document - as Premiere's "Exclude unused clips" and
+/// Kdenlive's "Archive only timeline clips" do: the bin's leftovers are
+/// often most of a project's size.
 pub fn export(
     document: &Value,
     settings: &DocumentSettings,
     project_path: &str,
     output: &Path,
+    only_used: bool,
 ) -> Result<Exported, String> {
     // Typed through the engine's reader and writer, as templates are, so a
     // schema change breaks this at compile time rather than in a package.
     let Some(mut project) = concat_project::from_document(document) else {
         return Err("the open project is not a document this build can read".to_owned());
     };
+    if only_used {
+        let used = used_media(&project);
+        project.media.retain(|item| used.contains(&item.id));
+    }
 
     // Written next to the destination and renamed into place at the end: an
     // export that fails halfway leaves no truncated package behind.
@@ -324,6 +439,10 @@ pub fn import_as(
             }
         }
 
+        if replacing {
+            keep_unused_media(&mut document, &target, &work_root, &destination)?;
+        }
+
         let mut editor = Editor::from_document(&document).ok_or(
             "this package holds a project this build cannot read (made by a newer Concat?)",
         )?;
@@ -366,6 +485,84 @@ pub fn import_as(
     }
     let _ = std::fs::remove_dir_all(&aside);
     projects::open(&target.to_string_lossy())
+}
+
+/// Replacing a project keeps its bin: media the old project had that the
+/// package does not - most often the unused files a package made with
+/// "only used media" left behind - is added to the new document, so a
+/// round trip through a phone never empties the bin. A file that lived
+/// inside the old project folder is copied into the new one first (that
+/// folder is about to go); one outside it is referenced where it is. A
+/// file that is gone is not kept.
+fn keep_unused_media(
+    document: &mut Value,
+    old_root: &Path,
+    work_root: &Path,
+    destination: &Path,
+) -> Result<(), String> {
+    let Ok(Some(old)) = projects::read_document(&old_root.to_string_lossy()) else {
+        return Ok(()); // nothing readable to keep
+    };
+    let Some(old_media) = old.get("media").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let media = document
+        .get_mut("media")
+        .and_then(Value::as_array_mut)
+        .ok_or("the package's project has no media list")?;
+    let paths: std::collections::HashSet<String> = media
+        .iter()
+        .filter_map(|item| item.get("path").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect();
+    let mut ids: std::collections::HashSet<String> = media
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect();
+
+    for item in old_media {
+        let Some(path) = item.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        if path.is_empty() || paths.contains(path) {
+            continue;
+        }
+        let source = Path::new(path);
+        if !source.is_file() {
+            continue;
+        }
+        let kept_path = match source.strip_prefix(old_root) {
+            Ok(relative) => {
+                let mut relative = relative.to_path_buf();
+                if work_root.join(&relative).exists() {
+                    relative = Path::new(MEDIA).join("kept").join(relative);
+                }
+                let copy = work_root.join(&relative);
+                if let Some(parent) = copy.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|error| format!("could not keep {path}: {error}"))?;
+                }
+                std::fs::copy(source, &copy)
+                    .map_err(|error| format!("could not keep {path}: {error}"))?;
+                destination.join(relative).to_string_lossy().into_owned()
+            }
+            Err(_) => path.to_owned(),
+        };
+        let mut kept = item.clone();
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("m");
+        let mut fresh = id.to_owned();
+        let mut n = 2;
+        while ids.contains(&fresh) {
+            fresh = format!("{id}k{n}");
+            n += 1;
+        }
+        ids.insert(fresh.clone());
+        kept["id"] = Value::String(fresh);
+        kept["path"] = Value::String(kept_path);
+        media.push(kept);
+    }
+    Ok(())
 }
 
 /// The package's archive, and its document parsed.
@@ -539,7 +736,7 @@ mod tests {
         let doc = document(&[("m1", &a), ("m2", &b), ("m3", &a)]);
 
         let out = scratch("out").join("Reel.concat.zip");
-        let exported = export(&doc, &settings(), source.to_str().unwrap(), &out).unwrap();
+        let exported = export(&doc, &settings(), source.to_str().unwrap(), &out, false).unwrap();
         assert_eq!(exported.files, 2);
         assert!(out.is_file());
 
@@ -576,7 +773,7 @@ mod tests {
         std::fs::write(&shot, b"new").unwrap();
         let doc = document(&[("m1", &shot)]);
         let out = scratch("replace-out").join("Reel.concat.zip");
-        export(&doc, &settings(), source.to_str().unwrap(), &out).unwrap();
+        export(&doc, &settings(), source.to_str().unwrap(), &out, false).unwrap();
 
         let location = scratch("replace-projects");
         let location = location.to_str().unwrap();
@@ -597,11 +794,77 @@ mod tests {
     }
 
     #[test]
+    fn summary_counts_and_only_used_leaves_the_rest_out() {
+        let source = scratch("summary");
+        let used = source.join("used.jpg");
+        let spare = source.join("spare.jpg");
+        std::fs::write(&used, b"12345").unwrap();
+        std::fs::write(&spare, b"1234567890").unwrap();
+        let mut doc = document(&[("m1", &used)]);
+        doc["media"].as_array_mut().unwrap().push(json!({
+            "id": "m2", "path": spare.to_string_lossy(), "name": "m2", "duration": 5.0,
+            "kind": "image", "hasAudio": false
+        }));
+
+        let summary = summarize(&doc).unwrap();
+        assert_eq!(summary.count(false), 2);
+        assert_eq!(summary.bytes(false), 15);
+        assert_eq!(summary.count(true), 1);
+        assert_eq!(summary.bytes(true), 5);
+        assert_eq!(summary.unused(), (1, 10));
+        assert!(summary.missing(false).is_empty());
+
+        let out = source.join("Reel.concat.zip");
+        let exported = export(&doc, &settings(), source.to_str().unwrap(), &out, true).unwrap();
+        assert_eq!(exported.files, 1);
+        let location = scratch("summary-projects");
+        let project = import(&out, location.to_str().unwrap()).unwrap();
+        let opened = projects::read_document(&project.path).unwrap().unwrap();
+        assert_eq!(opened["media"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn replacing_keeps_the_old_bins_unused_media() {
+        let source = scratch("keep-source");
+        let used = source.join("used.jpg");
+        let spare = source.join("spare.jpg");
+        std::fs::write(&used, b"used").unwrap();
+        std::fs::write(&spare, b"spare").unwrap();
+        let mut doc = document(&[("m1", &used)]);
+        doc["media"].as_array_mut().unwrap().push(json!({
+            "id": "m2", "path": spare.to_string_lossy(), "name": "m2", "duration": 5.0,
+            "kind": "image", "hasAudio": false
+        }));
+        let location = scratch("keep-projects");
+        let location = location.to_str().unwrap();
+
+        // The full project arrives first; the spare file now lives inside it.
+        let full = source.join("full.concat.zip");
+        export(&doc, &settings(), source.to_str().unwrap(), &full, false).unwrap();
+        let first = import(&full, location).unwrap();
+
+        // Then a package of only the used media replaces it.
+        let lean = source.join("lean.concat.zip");
+        export(&doc, &settings(), source.to_str().unwrap(), &lean, true).unwrap();
+        let replaced = import_as(&lean, location, OnClash::Replace).unwrap();
+        assert_eq!(replaced.path, first.path);
+
+        let opened = projects::read_document(&replaced.path).unwrap().unwrap();
+        let media = opened["media"].as_array().unwrap();
+        assert_eq!(media.len(), 2, "the unused file is still in the bin");
+        for item in media {
+            let path = item["path"].as_str().unwrap();
+            assert!(Path::new(path).is_file(), "{path} is gone");
+            assert!(path.starts_with(&replaced.path), "{path}");
+        }
+    }
+
+    #[test]
     fn a_missing_file_refuses_the_export_and_leaves_nothing() {
         let source = scratch("missing");
         let doc = document(&[("m1", &source.join("gone.jpg"))]);
         let out = source.join("Reel.concat.zip");
-        assert!(export(&doc, &settings(), source.to_str().unwrap(), &out).is_err());
+        assert!(export(&doc, &settings(), source.to_str().unwrap(), &out, false).is_err());
         assert!(!out.exists());
         assert!(!out.with_extension("zip.saving").exists());
     }

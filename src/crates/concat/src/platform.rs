@@ -726,6 +726,70 @@ pub fn publish_package(
     }
 }
 
+/// How a phone lets the person choose where an exported package goes: the
+/// system's "create document" picker (Downloads, Drive, a USB stick...),
+/// then a copy into the document it made. Installed by the phone's own
+/// crate; see [`ask_package_destination`].
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub struct PackageSaver {
+    /// Shows the picker with a suggested file name and calls back, later,
+    /// with the document chosen (an opaque string the phone understands),
+    /// or None when it was dismissed.
+    pub ask: Box<dyn Fn(&str, Box<dyn FnOnce(Option<String>) + Send>) + Send + Sync>,
+    /// Copies a written package into that document; answers with the name
+    /// it ended up under. Blocking: called off the window's thread.
+    pub write: Box<dyn Fn(&std::path::Path, &str) -> Result<String, String> + Send + Sync>,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static PACKAGE_SAVER: std::sync::OnceLock<PackageSaver> = std::sync::OnceLock::new();
+
+/// Installs the phone's "save to…" picker for packages. Once.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_package_saver(saver: PackageSaver) {
+    let _ = PACKAGE_SAVER.set(saver);
+}
+
+/// Asks a phone where to save a package called `name`; `on_answer` comes
+/// later, from any thread. False - and `on_answer` is never called - where
+/// there is no such picker: a desktop (which asks with its save dialog) or
+/// a phone without one.
+pub fn ask_package_destination(
+    name: &str,
+    on_answer: impl FnOnce(Option<String>) + Send + 'static,
+) -> bool {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let Some(saver) = PACKAGE_SAVER.get() else {
+            return false;
+        };
+        (saver.ask)(name, Box::new(on_answer));
+        true
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = (name, on_answer);
+        false
+    }
+}
+
+/// Copies a written package into the document [`ask_package_destination`]
+/// answered with, and says what it is called there.
+pub fn write_package_to(path: &std::path::Path, destination: &str) -> Result<String, String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        match PACKAGE_SAVER.get() {
+            Some(saver) => (saver.write)(path, destination),
+            None => Err("this phone cannot save files elsewhere".to_owned()),
+        }
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = (path, destination);
+        Err("only a phone saves through a picker".to_owned())
+    }
+}
+
 /// Asks for one project package and calls `on_picked` with it - an empty
 /// list for nothing - on whichever thread the platform answers from. A
 /// desktop's dialog is limited to zips; a phone uses its package picker.

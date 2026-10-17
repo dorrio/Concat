@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Button, DialogSection, Modal } from "../primitives/modal.slint";
+import { Switch } from "../inspector/controls.slint";
+
+/// One file the package would carry, as the summary lists it.
+export struct PackageFileItem {
+    name: string,
+    /// "12 MB".
+    size: string,
+    /// Left out with "only used media" on: no clip uses it.
+    unused: bool,
+    /// Not on disk: the export would fail on it.
+    missing: bool,
+}
+
+/// The summary shown before a project is packed for another device: what
+/// goes in, how many files and how big - Premiere's "Calculate" and
+/// Kdenlive's archive sheet - and then where it is saved.
+export struct PackageData {
+    open: bool,
+    /// "SacraLux_Replica_2".
+    name: string,
+    /// "1080 × 1920 · 30 fps · 0:16".
+    details: string,
+    files: [PackageFileItem],
+    /// "7 files · 23 MB".
+    total: string,
+    /// "10 unused files (13 MB) are left out", or empty.
+    unused-note: string,
+    /// Files that are not on disk, named; empty when there are none.
+    missing-note: string,
+    only-used: bool,
+    /// There are unused files at all; without any the switch is pointless.
+    has-unused: bool,
+}
+
+export component PackageDialog inherits Modal {
+    in property <PackageData> data;
+
+    callback only-used-toggled(on: bool);
+    callback save();
+    callback dismiss();
+
+    open: root.data.open;
+    title: I18n.t("studio.exportPackage");
+    glyph: Glyph.export;
+    surface-width: 520px;
+    closed => { root.dismiss(); }
+
+    VerticalLayout {
+        DialogSection {
+            first: true;
+            title: root.data.name;
+
+            Text {
+                text: root.data.details;
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+            }
+
+            Flickable {
+                height: Math.min(220px, files-layout.preferred-height);
+                content-height: files-layout.preferred-height;
+
+                files-layout := VerticalLayout {
+                    spacing: 2px;
+
+                    for file in root.data.files : Rectangle {
+                        height: 30px;
+                        background: Theme.field;
+                        border-radius: 4px;
+                        opacity: file.unused && root.data.only-used ? 0.4 : 1.0;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 8px;
+
+                            Text {
+                                text: file.name;
+                                color: file.missing ? Theme.danger : Theme.fg;
+                                font-size: Theme.fs;
+                                overflow: elide;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            if file.unused: Text {
+                                text: I18n.t("studio.packageUnused");
+                                color: Theme.fg-dim;
+                                font-size: Theme.fs-sm;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: file.missing ? I18n.t("studio.packageMissing") : file.size;
+                                color: file.missing ? Theme.danger : Theme.fg-dim;
+                                font-size: Theme.fs-sm;
+                                font-family: Theme.font-technical;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if root.data.has-unused: HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: I18n.t("studio.packageOnlyUsed");
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Switch {
+                        checked: root.data.only-used;
+                        toggled(on) => { root.only-used-toggled(on); }
+                    }
+                }
+            }
+
+            Text {
+                text: root.data.total;
+                color: Theme.fg;
+                font-size: Theme.fs-lg;
+                font-weight: Theme.weight-title;
+            }
+            if root.data.unused-note != "": Text {
+                text: root.data.unused-note;
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+            if root.data.missing-note != "": Text {
+                text: root.data.missing-note;
+                color: Theme.danger;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+
+            Button {
+                label: I18n.t("common.cancel");
+                clicked => { root.dismiss(); }
+            }
+            Button {
+                primary: true;
+                enabled: root.data.missing-note == "";
+                label: I18n.t("studio.packageChooseWhere");
+                clicked => { root.save(); }
+            }
+        }
+    }
+}
