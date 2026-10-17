@@ -1907,6 +1907,9 @@ pub enum Confirm {
     RemoveTrack { track_id: String },
     /// Exporting over a file that is already at `path`.
     ReplaceExport { path: String },
+    /// The cross on a launch-screen card: delete the project folder, or
+    /// only take it off the list.
+    RemoveProject { path: String, name: String },
     /// Importing a package whose project, `name`, is already under
     /// `location`: replace it, or keep both.
     ImportPackage {
@@ -2290,17 +2293,44 @@ impl Studio {
                 location,
                 name,
             }) => self.replace_with_package(package, location, &name),
+            Some(Confirm::RemoveProject { path, name }) => self.delete_project(&path, &name),
             None => {}
         }
     }
 
+    /// Deletes a project folder from the device, closing it first if it is
+    /// this window's; refused while the remote API holds it.
+    fn delete_project(&mut self, path: &str, name: &str) {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| std::path::Path::new(session.path()) == std::path::Path::new(path))
+        {
+            self.close_project();
+        } else if self.host.open_projects.holder(path).is_some() {
+            self.notify(&t("studio.projectOpenThroughRemote"), true);
+            return;
+        }
+        match projects::delete(&self.host.dirs.config, path) {
+            Ok(()) => self.notify(&tf("start.projectDeleted", &[&name]), false),
+            Err(error) => self.notify(&error, true),
+        }
+        self.recents = projects::list(&self.host.dirs.config);
+    }
+
     /// The confirmation sheet's second answer, where it has one.
     pub fn confirm_alternate(&mut self) {
-        if let Some(Confirm::ImportPackage {
-            package, location, ..
-        }) = self.confirm.take()
-        {
-            self.run_import(package, location, package::OnClash::Copy);
+        match self.confirm.take() {
+            Some(Confirm::ImportPackage {
+                package, location, ..
+            }) => self.run_import(package, location, package::OnClash::Copy),
+            Some(Confirm::RemoveProject { path, .. }) => {
+                if let Err(error) = projects::forget(&self.host.dirs.config, &path) {
+                    self.notify(&error, true);
+                }
+                self.recents = projects::list(&self.host.dirs.config);
+            }
+            _ => {}
         }
     }
 
@@ -2336,6 +2366,13 @@ impl Studio {
                 message: tf("export.replaceFileMessage", &[path]).into(),
                 action: t("export.replace").into(),
                 alternate: SharedString::new(),
+            },
+            Confirm::RemoveProject { name, .. } => crate::ui::ConfirmData {
+                open: true,
+                title: t("start.removeProjectTitle").into(),
+                message: tf("start.removeProjectMessage", &[name]).into(),
+                action: t("start.deleteFromDevice").into(),
+                alternate: t("start.removeFromList").into(),
             },
             Confirm::ImportPackage { name, .. } => crate::ui::ConfirmData {
                 open: true,

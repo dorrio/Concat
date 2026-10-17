@@ -274,6 +274,32 @@ pub fn forget(config: &Path, path: &str) -> Result<(), String> {
     write_recents(config, &entries)
 }
 
+/// Deletes a project folder for good - its manifest, cache and every file
+/// inside it, such as media a package brought along - and drops it from the
+/// list. Media it points at outside the folder is left alone: that is the
+/// person's own footage, not the project's.
+///
+/// This deletes recursively, so the folder is checked rather than trusted:
+/// it must hold a project manifest and must not be a filesystem root or the
+/// home folder. The caller makes sure it is open nowhere.
+pub fn delete(config: &Path, path: &str) -> Result<(), String> {
+    let root = Path::new(path);
+    let refuse = || format!("{path} is not a Concat project folder");
+    if !is_project(root) {
+        return Err(refuse());
+    }
+    let canonical = root.canonicalize().map_err(|_| refuse())?;
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if canonical.parent().is_none()
+        || home.is_some_and(|home| home.canonicalize().is_ok_and(|home| home == canonical))
+    {
+        return Err(refuse());
+    }
+    std::fs::remove_dir_all(&canonical)
+        .map_err(|error| format!("could not delete {path}: {error}"))?;
+    forget(config, path)
+}
+
 fn read_recents(config: &Path) -> Vec<ProjectInfo> {
     // A missing or corrupt list is not an error worth showing anyone; it just
     // means there is no history yet.
@@ -448,5 +474,26 @@ mod tests {
             "C:\\Temp\\.tmp1/Round trip"
         ));
         assert!(same_path("C:/Work/Film/", "c:\\work\\film"));
+    }
+
+    #[test]
+    fn delete_removes_only_a_project_folder() {
+        let base = std::env::temp_dir().join(format!("concat-delete-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let config = base.join("config");
+        let location = base.join("projects");
+        let info = create(location.to_str().unwrap(), "Doomed", 1080, 1920, 30, 1).unwrap();
+        remember(&config, &info).unwrap();
+        std::fs::create_dir_all(Path::new(&info.path).join("media")).unwrap();
+        std::fs::write(Path::new(&info.path).join("media/clip.mp4"), b"x").unwrap();
+
+        // Not a project: refused, and nothing is touched.
+        assert!(delete(&config, location.to_str().unwrap()).is_err());
+        assert!(location.is_dir());
+
+        delete(&config, &info.path).unwrap();
+        assert!(!Path::new(&info.path).exists());
+        assert!(list(&config).is_empty());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

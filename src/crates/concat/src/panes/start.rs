@@ -225,11 +225,17 @@ impl StartPane {
                     studio.notify(&error, true);
                 }
             }
+            // The cross asks first: delete the folder from the device, or
+            // only take it off this list. On a phone the folder is in the
+            // app's own storage, where nothing else can delete it.
             StartMsg::ForgetRecent(path) => {
-                if let Err(error) = projects::forget(&studio.host.dirs.config, &path) {
-                    studio.notify(&error, true);
-                }
-                studio.recents = projects::list(&studio.host.dirs.config);
+                let name = studio
+                    .recents
+                    .iter()
+                    .find(|info| info.path == path)
+                    .map(|info| info.name.clone())
+                    .unwrap_or_else(|| path.clone());
+                studio.confirm = Some(crate::studio::Confirm::RemoveProject { path, name });
             }
         }
     }
