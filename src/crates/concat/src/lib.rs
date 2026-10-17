@@ -1380,6 +1380,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_confirm_dismissed(on_window!(|state| {
         state.confirm = None;
     }));
+    app.on_confirm_alternate(on_window!(|state| {
+        state.confirm_alternate();
+    }));
 
     app.on_relink_all(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::RelinkAll));

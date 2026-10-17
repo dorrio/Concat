@@ -15,6 +15,9 @@ export struct ConfirmData {
     message: string,
     /// The button that goes ahead, in the danger tone: "Delete".
     action: string,
+    /// A second way ahead, in the plain tone, between the two: "Keep
+    /// both". Empty for a question with one answer.
+    alternate: string,
 }
 
 // The confirmation sheet. Return goes ahead and Escape backs out, so a
@@ -25,6 +28,7 @@ export component ConfirmDialog inherits Modal {
 
     callback confirmed();
     callback dismissed();
+    callback alternated();
 
     open: root.data.open;
     title: root.data.title;
@@ -72,6 +76,11 @@ export component ConfirmDialog inherits Modal {
                 Button {
                     label: I18n.t("common.cancel");
                     clicked => { root.dismissed(); }
+                }
+
+                if root.data.alternate != "": Button {
+                    label: root.data.alternate;
+                    clicked => { root.alternated(); }
                 }
 
                 Button {

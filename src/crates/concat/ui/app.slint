@@ -856,6 +856,7 @@ export component App inherits Window {
     in property <ConfirmData> confirm;
     callback confirm-accepted();
     callback confirm-dismissed();
+    callback confirm-alternate();
 
     ConfirmDialog {
         inset-top: root.safe-area-insets.top;
@@ -869,6 +870,7 @@ export component App inherits Window {
         data: root.confirm;
         confirmed => { root.confirm-accepted(); }
         dismissed => { root.confirm-dismissed(); }
+        alternated => { root.confirm-alternate(); }
     }
 
 

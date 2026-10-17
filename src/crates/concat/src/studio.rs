@@ -1883,6 +1883,13 @@ pub enum Confirm {
     RemoveTrack { track_id: String },
     /// Exporting over a file that is already at `path`.
     ReplaceExport { path: String },
+    /// Importing a package whose project, `name`, is already under
+    /// `location`: replace it, or keep both.
+    ImportPackage {
+        package: std::path::PathBuf,
+        location: String,
+        name: String,
+    },
 }
 
 /// One clip on the clipboard: the clip as it was when copied, and the row
@@ -2253,7 +2260,22 @@ impl Studio {
                     crate::panes::export::ExportMsg::Overwrite,
                 ));
             }
+            Some(Confirm::ImportPackage {
+                package,
+                location,
+                name,
+            }) => self.replace_with_package(package, location, &name),
             None => {}
+        }
+    }
+
+    /// The confirmation sheet's second answer, where it has one.
+    pub fn confirm_alternate(&mut self) {
+        if let Some(Confirm::ImportPackage {
+            package, location, ..
+        }) = self.confirm.take()
+        {
+            self.run_import(package, location, package::OnClash::Copy);
         }
     }
 
@@ -2280,6 +2302,7 @@ impl Studio {
                     title: t("timeline.deleteTrackTitle").into(),
                     message: message.into(),
                     action: t("common.delete").into(),
+                    alternate: SharedString::new(),
                 }
             }
             Confirm::ReplaceExport { path } => crate::ui::ConfirmData {
@@ -2287,6 +2310,14 @@ impl Studio {
                 title: t("export.replaceFileTitle").into(),
                 message: tf("export.replaceFileMessage", &[path]).into(),
                 action: t("export.replace").into(),
+                alternate: SharedString::new(),
+            },
+            Confirm::ImportPackage { name, .. } => crate::ui::ConfirmData {
+                open: true,
+                title: t("studio.packageClashTitle").into(),
+                message: tf("studio.packageClashMessage", &[name]).into(),
+                action: t("studio.packageReplace").into(),
+                alternate: t("studio.packageKeepBoth").into(),
             },
         }
     }
@@ -7730,11 +7761,53 @@ impl Studio {
             self.notify(&t("start.chooseWhereProjectFolder"), true);
             return;
         }
+        // Only the package's document is read here, so the question comes
+        // up at once; the unpacking itself runs on a worker.
+        match package::clash(&picked, &location) {
+            Ok(Some(name)) => {
+                self.confirm = Some(Confirm::ImportPackage {
+                    package: picked,
+                    location,
+                    name,
+                });
+            }
+            Ok(None) => self.run_import(picked, location, package::OnClash::Copy),
+            Err(error) => self.notify(&error, true),
+        }
+    }
+
+    /// "Replace": the project being replaced must be open nowhere - closed
+    /// (and saved) first if it is this window's, refused if the remote API
+    /// holds it.
+    fn replace_with_package(&mut self, picked: std::path::PathBuf, location: String, name: &str) {
+        let target = std::path::Path::new(&location)
+            .join(projects::folder_name(name))
+            .to_string_lossy()
+            .into_owned();
+        let ours = self
+            .session
+            .as_ref()
+            .is_some_and(|session| std::path::Path::new(session.path()) == std::path::Path::new(&target));
+        if ours {
+            self.close_project();
+        } else if self.host.open_projects.holder(&target).is_some() {
+            self.notify(&t("studio.projectOpenThroughRemote"), true);
+            return;
+        }
+        self.run_import(picked, location, package::OnClash::Replace);
+    }
+
+    fn run_import(
+        &mut self,
+        picked: std::path::PathBuf,
+        location: String,
+        on_clash: package::OnClash,
+    ) {
         self.notify(&t("studio.importingPackage"), false);
         spawn(
             move || {
                 let _ = std::fs::create_dir_all(&location);
-                let result = package::import(&picked, &location);
+                let result = package::import_as(&picked, &location, on_clash);
                 // A phone's picker hands over a copy in the app's own
                 // Imported/; once unpacked it is only taking up room.
                 if cfg!(any(target_os = "android", target_os = "ios")) && result.is_ok() {

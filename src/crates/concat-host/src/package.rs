@@ -216,55 +216,93 @@ fn deflated() -> SimpleFileOptions {
     SimpleFileOptions::default().compression_method(CompressionMethod::Deflated)
 }
 
+/// What an import does when the projects location already holds a
+/// project of the package's name - the same edit coming back from another
+/// device, most often.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnClash {
+    /// Keep both: the import gets a numbered folder of its own.
+    Copy,
+    /// The import takes the existing project's place. The old folder is
+    /// only removed once the new one is complete, so a failed import leaves
+    /// it as it was.
+    Replace,
+}
+
+/// The name of the project a package would clash with under `location` -
+/// a project folder already there under the package's name - or None.
+/// Cheap: only the package's document is read.
+pub fn clash(package: &Path, location: &str) -> Result<Option<String>, String> {
+    let (_, document) = open_package(package)?;
+    let settings = settings_of(&document)?;
+    let target = Path::new(location).join(projects::folder_name(&settings.name));
+    Ok(projects::is_project(&target).then_some(settings.name))
+}
+
 /// Unpacks the package at `package` into a new project folder under
 /// `location` and returns it, ready for `Studio::open_project`.
 ///
 /// The folder is named after the project; if that name is taken - the same
 /// edit imported twice, or a project of the same name already there - a
-/// number is added rather than overwriting anything.
+/// number is added rather than overwriting anything. See [`import_as`] to
+/// replace instead.
 pub fn import(package: &Path, location: &str) -> Result<projects::ProjectInfo, String> {
-    let file = File::open(package)
-        .map_err(|error| format!("could not open {}: {error}", package.display()))?;
-    let mut archive = ZipArchive::new(BufReader::new(file))
-        .map_err(|error| format!("{} is not a Concat package: {error}", package.display()))?;
+    import_as(package, location, OnClash::Copy)
+}
 
-    let mut document: Value = {
-        let mut entry = archive.by_name(DOCUMENT).map_err(|_| {
-            format!(
-                "{} is not a Concat package: it has no {DOCUMENT}",
-                package.display()
-            )
-        })?;
-        let mut bytes = Vec::new();
-        entry
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("could not read the package: {error}"))?;
-        serde_json::from_slice(&bytes)
-            .map_err(|error| format!("the package's project does not parse: {error}"))?
-    };
-
+/// [`import`], saying what to do when a project of the package's name is
+/// already under `location`.
+///
+/// The caller makes sure a project being replaced is not open anywhere.
+pub fn import_as(
+    package: &Path,
+    location: &str,
+    on_clash: OnClash,
+) -> Result<projects::ProjectInfo, String> {
+    let (mut archive, mut document) = open_package(package)?;
     let settings = settings_of(&document)?;
-    let root = free_folder(Path::new(location), &settings.name);
-    let name = root
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(&settings.name)
-        .to_owned();
-    let project = projects::create(
+    let base = Path::new(location);
+    let target = base.join(projects::folder_name(&settings.name));
+    let replacing = on_clash == OnClash::Replace && projects::is_project(&target);
+
+    // Where the project ends up, and where it is unpacked first: the same
+    // folder for a copy; a scratch folder beside it when replacing, so the
+    // old project stays whole until the new one is.
+    let (destination, name) = if replacing {
+        (target.clone(), settings.name.clone())
+    } else {
+        let free = free_folder(base, &settings.name);
+        let name = free
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(&settings.name)
+            .to_owned();
+        (free, name)
+    };
+    let work_name = if replacing {
+        free_folder(base, &format!("{} importing", projects::folder_name(&name)))
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("importing")
+            .to_owned()
+    } else {
+        name.clone()
+    };
+    let work = projects::create(
         location,
-        &name,
+        &work_name,
         settings.width,
         settings.height,
         settings.rate_num,
         settings.rate_den,
     )?;
-    let root = PathBuf::from(&project.path);
+    let work_root = PathBuf::from(&work.path);
 
     // Anything that goes wrong from here takes the half-made folder with it.
     let unpacked = (|| {
-        unpack(&mut archive, &root)?;
+        unpack(&mut archive, &work_root)?;
 
-        document["name"] = Value::String(project.name.clone());
+        document["name"] = Value::String(name.clone());
         for section in ["media", "fonts"] {
             let Some(items) = document.get_mut(section).and_then(Value::as_array_mut) else {
                 continue;
@@ -279,7 +317,9 @@ pub fn import(package: &Path, location: &str) -> Result<projects::ProjectInfo, S
                 let Some(relative) = relative_inside(path) else {
                     return Err(format!("the package points outside itself: {path}"));
                 };
-                let absolute = root.join(relative);
+                // Against where the project will live, not the scratch
+                // folder it is unpacked in.
+                let absolute = destination.join(relative);
                 item["path"] = Value::String(absolute.to_string_lossy().into_owned());
             }
         }
@@ -290,14 +330,14 @@ pub fn import(package: &Path, location: &str) -> Result<projects::ProjectInfo, S
         let catalogue = concat_effects::Catalogue::builtin();
         editor.upgrade_links(|link| catalogue.upgrade(link));
         let settings = DocumentSettings {
-            name: project.name.clone(),
+            name: name.clone(),
             ..settings
         };
-        projects::save(&project.path, &editor.to_document(&settings))?;
+        projects::save(&work.path, &editor.to_document(&settings))?;
 
-        let preview = root.join(PREVIEW);
+        let preview = work_root.join(PREVIEW);
         if preview.is_file() {
-            let cache = root.join("cache");
+            let cache = work_root.join("cache");
             let _ = std::fs::create_dir_all(&cache);
             let _ = std::fs::rename(&preview, cache.join(PREVIEW));
         }
@@ -305,10 +345,50 @@ pub fn import(package: &Path, location: &str) -> Result<projects::ProjectInfo, S
     })();
 
     if let Err(error) = unpacked {
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&work_root);
         return Err(error);
     }
-    Ok(project)
+    if !replacing {
+        return Ok(work);
+    }
+
+    // The swap: the old project steps aside, the new one moves in, and only
+    // then is the old one removed. A failed move puts the old one back.
+    let aside = free_folder(base, &format!("{} replaced", projects::folder_name(&name)));
+    if let Err(error) = std::fs::rename(&target, &aside) {
+        let _ = std::fs::remove_dir_all(&work_root);
+        return Err(format!("could not replace {}: {error}", target.display()));
+    }
+    if let Err(error) = std::fs::rename(&work_root, &target) {
+        let _ = std::fs::rename(&aside, &target);
+        let _ = std::fs::remove_dir_all(&work_root);
+        return Err(format!("could not replace {}: {error}", target.display()));
+    }
+    let _ = std::fs::remove_dir_all(&aside);
+    projects::open(&target.to_string_lossy())
+}
+
+/// The package's archive, and its document parsed.
+fn open_package(package: &Path) -> Result<(ZipArchive<BufReader<File>>, Value), String> {
+    let file = File::open(package)
+        .map_err(|error| format!("could not open {}: {error}", package.display()))?;
+    let mut archive = ZipArchive::new(BufReader::new(file))
+        .map_err(|error| format!("{} is not a Concat package: {error}", package.display()))?;
+    let document = {
+        let mut entry = archive.by_name(DOCUMENT).map_err(|_| {
+            format!(
+                "{} is not a Concat package: it has no {DOCUMENT}",
+                package.display()
+            )
+        })?;
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("could not read the package: {error}"))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|error| format!("the package's project does not parse: {error}"))?
+    };
+    Ok((archive, document))
 }
 
 /// The output format a package's document declares.
@@ -487,6 +567,33 @@ mod tests {
         // A second import never overwrites the first.
         let again = import(&out, location.to_str().unwrap()).unwrap();
         assert_ne!(again.path, project.path);
+    }
+
+    #[test]
+    fn replace_takes_the_old_projects_place() {
+        let source = scratch("replace-source");
+        let shot = source.join("shot.jpg");
+        std::fs::write(&shot, b"new").unwrap();
+        let doc = document(&[("m1", &shot)]);
+        let out = scratch("replace-out").join("Reel.concat.zip");
+        export(&doc, &settings(), source.to_str().unwrap(), &out).unwrap();
+
+        let location = scratch("replace-projects");
+        let location = location.to_str().unwrap();
+        assert_eq!(clash(&out, location).unwrap(), None);
+        let first = import(&out, location).unwrap();
+        std::fs::write(Path::new(&first.path).join("old-only.txt"), b"old").unwrap();
+        assert_eq!(clash(&out, location).unwrap().as_deref(), Some("Reel"));
+
+        let replaced = import_as(&out, location, OnClash::Replace).unwrap();
+        assert_eq!(replaced.path, first.path);
+        assert!(!Path::new(&replaced.path).join("old-only.txt").exists());
+        let opened = projects::read_document(&replaced.path).unwrap().unwrap();
+        let path = opened["media"][0]["path"].as_str().unwrap().to_owned();
+        assert!(path.starts_with(&replaced.path), "{path}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        // Nothing left beside it: no scratch folder, no old copy.
+        assert_eq!(std::fs::read_dir(location).unwrap().count(), 1);
     }
 
     #[test]
