@@ -34,6 +34,7 @@ pub mod memory;
 pub mod models;
 pub mod playback;
 pub mod preview;
+pub mod package;
 pub mod projects;
 pub mod proxy;
 pub mod record;

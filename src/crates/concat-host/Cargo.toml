@@ -37,6 +37,10 @@ log = { version = "0.4", features = ["std"] }
 # The CPU compositor draws the monitor's frame; the wgpu one is behind
 # `gpu`, so a headless host pays for no GPU tree.
 concat-render.workspace = true
+# Portable project packages (package.rs): one zip that carries an edit and
+# its media between a desktop and a phone. Already in the tree through
+# sherpa-onnx; deflate only, for the document - media is stored.
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 
