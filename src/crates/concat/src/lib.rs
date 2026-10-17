@@ -46,7 +46,10 @@ mod platform;
 /// phone shows it. See `platform::pick_files_async` and
 /// `platform::publish_export`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub use platform::{ExportPublisher, FilePicker, install_export_publisher, install_file_picker};
+pub use platform::{
+    ExportPublisher, FilePicker, install_export_publisher, install_file_picker,
+    install_package_picker, install_package_publisher,
+};
 mod panes;
 mod prefs;
 mod presets;
@@ -1755,6 +1758,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                         ),
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
+                        "export-package" => state.export_package(),
+                        "import-package" => {
+                            Studio::import_package(state.start.location.clone())
+                        }
                         "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
                         "clear-cache" => state.clear_project_cache(),
                         "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),

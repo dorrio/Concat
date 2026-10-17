@@ -78,14 +78,45 @@ public class ConcatFiles extends Fragment {
         if (folder == null) {
             return new String[] {null, "this phone has no media store to put it in"};
         }
+        return publish(activity, path, folder, "video/mp4",
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY));
+    }
+
+    /**
+     * Where an exported project package goes: Download/Concat, where every
+     * file manager, the share sheet and a USB cable find it. Null before
+     * Android 10, as {@link #publishedFolder()}.
+     */
+    public static String packageFolder() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return null;
+        }
+        return Environment.DIRECTORY_DOWNLOADS + "/Concat";
+    }
+
+    /**
+     * {@link #publishVideo} for a project package (a zip): moved into
+     * {@link #packageFolder()} through the media store's Downloads.
+     */
+    public static String[] publishPackage(Activity activity, String path) {
+        String folder = packageFolder();
+        if (folder == null) {
+            return new String[] {null, "this phone has no media store to put it in"};
+        }
+        return publish(activity, path, folder, "application/zip",
+                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY));
+    }
+
+    /** Copies {@code path} into {@code collection} under {@code folder}, then deletes it. */
+    private static String[] publish(Activity activity, String path, String folder, String mime,
+            Uri collection) {
         File file = new File(path);
         ContentResolver resolver = activity.getContentResolver();
         ContentValues values = new ContentValues();
-        values.put(MediaStore.Video.Media.DISPLAY_NAME, file.getName());
-        values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-        values.put(MediaStore.Video.Media.RELATIVE_PATH, folder);
-        values.put(MediaStore.Video.Media.IS_PENDING, 1);
-        Uri collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, file.getName());
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
+        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
         Uri uri;
         try {
             uri = resolver.insert(collection, values);
@@ -111,7 +142,7 @@ public class ConcatFiles extends Fragment {
             out.close();
             out = null;
             values.clear();
-            values.put(MediaStore.Video.Media.IS_PENDING, 0);
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0);
             resolver.update(uri, values, null, null);
         } catch (Exception e) {
             try {
@@ -139,6 +170,22 @@ public class ConcatFiles extends Fragment {
 
     /** Shows the picker. From any thread; the fragment is added on the UI thread. */
     public static void pick(final Activity activity) {
+        pick(activity, new String[] {"video/*", "audio/*", "image/*"}, true);
+    }
+
+    /**
+     * Shows the picker for one project package. Zips come labelled in more
+     * than one way depending on who saved them - a messaging app, a cloud
+     * drive, a USB copy - so every label a zip goes by is offered.
+     */
+    public static void pickPackage(final Activity activity) {
+        pick(activity, new String[] {
+            "application/zip", "application/x-zip-compressed", "application/x-zip",
+            "application/octet-stream"
+        }, false);
+    }
+
+    private static void pick(final Activity activity, final String[] mimes, final boolean multiple) {
         activity.runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -152,8 +199,8 @@ public class ConcatFiles extends Fragment {
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"video/*", "audio/*", "image/*"});
-                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes);
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple);
                 try {
                     fragment.startActivityForResult(intent, REQUEST_PICK);
                 } catch (Exception e) {

@@ -109,6 +109,24 @@ pub enum Request {
         #[serde(default)]
         name: Option<String>,
     },
+    /// Packs an open project and every file it uses into one zip, for
+    /// another device; see `concat_host::package`.
+    #[serde(rename = "project.exportPackage")]
+    ProjectExportPackage {
+        /// The project folder.
+        path: String,
+        /// The zip to write.
+        output: String,
+    },
+    /// Unpacks a project package into a new project folder under
+    /// `location` and opens it, as `project.open` does.
+    #[serde(rename = "project.importPackage")]
+    ProjectImportPackage {
+        /// The zip to read.
+        package: String,
+        /// The directory the project folder is made in.
+        location: String,
+    },
     /// Sets the active timeline's frame and rate, as an undoable edit.
     #[serde(rename = "project.setVideo")]
     ProjectSetVideo {
@@ -319,6 +337,8 @@ pub enum Reply {
     Written(Written),
     /// [`Request::PreviewFrame`] without one: the picture itself.
     Picture(Picture),
+    /// [`Request::ProjectExportPackage`]: the package written.
+    Package(PackageWritten),
     /// Methods with nothing to say beyond having worked.
     Done(Done),
 }
@@ -360,6 +380,18 @@ impl From<&AppDirs> for Dirs {
             data: dirs.data.to_string_lossy().into_owned(),
         }
     }
+}
+
+/// A project package the API wrote.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageWritten {
+    /// The zip's path.
+    pub path: String,
+    /// How many media and font files went in.
+    pub files: usize,
+    /// The zip's size in bytes.
+    pub bytes: u64,
 }
 
 /// A file the API wrote.

@@ -677,6 +677,83 @@ pub fn install_export_publisher(publisher: ExportPublisher) {
     let _ = EXPORT_PUBLISHER.set(publisher);
 }
 
+/// The phone's picker for one project package (a zip): the same kind of
+/// picker as [`install_file_picker`]'s, asking for zips rather than media.
+/// Installed by the phone's own crate; a phone without one falls back to
+/// the media picker. See [`pick_package_async`].
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static PACKAGE_PICKER: std::sync::OnceLock<FilePicker> = std::sync::OnceLock::new();
+
+/// Installs the picker [`pick_package_async`] answers with. Once.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_package_picker(picker: FilePicker) {
+    let _ = PACKAGE_PICKER.set(picker);
+}
+
+/// Where a phone puts an exported project package: "Download/Concat",
+/// through the same kind of publisher as a finished video.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static PACKAGE_PUBLISHER: std::sync::OnceLock<ExportPublisher> = std::sync::OnceLock::new();
+
+/// Installs where a phone puts an exported project package. Once.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_package_publisher(publisher: ExportPublisher) {
+    let _ = PACKAGE_PUBLISHER.set(publisher);
+}
+
+/// Hands an exported package to the phone on a thread of its own, as
+/// [`publish_export`] does a video. False on a desktop, where the package
+/// was written where the person chose, and on a phone with nowhere to put
+/// it: the file stays where it was written.
+pub fn publish_package(
+    path: std::path::PathBuf,
+    on_done: impl FnOnce(Result<String, String>) + Send + 'static,
+) -> bool {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let Some(publisher) = PACKAGE_PUBLISHER.get() else {
+            return false;
+        };
+        std::thread::Builder::new()
+            .name("package publish".into())
+            .spawn(move || on_done((publisher.publish)(&path)))
+            .is_ok()
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = (path, on_done);
+        false
+    }
+}
+
+/// Asks for one project package and calls `on_picked` with it - an empty
+/// list for nothing - on whichever thread the platform answers from. A
+/// desktop's dialog is limited to zips; a phone uses its package picker.
+pub fn pick_package_async(
+    title: &str,
+    family: &str,
+    on_picked: impl FnOnce(Vec<PathBuf>) + Send + 'static,
+) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let picked = rfd::FileDialog::new()
+            .set_title(title)
+            .add_filter(family, &["zip"])
+            .pick_file();
+        if let Some(path) = picked {
+            on_picked(vec![path]);
+        }
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (title, family);
+        match PACKAGE_PICKER.get().or(FILE_PICKER.get()) {
+            Some(picker) => picker(Box::new(on_picked)),
+            None => log::warn!("no file picker on this platform yet"),
+        }
+    }
+}
+
 /// Where a finished export ends up on this device when that is not the
 /// folder the export writes into: a phone's "Movies/Concat". None on a
 /// desktop, and on a phone too old to be asked, where the file stays where

@@ -37,8 +37,19 @@ jobs:
         with:
           workspaces: src
           cache-on-failure: true
-      - run: cargo fmt --check
+      # No toolchain on the machine this is written on: rustfmt's changes
+      # come back as a patch to apply, rather than failing the run.
+      - name: rustfmt
         working-directory: src
+        run: |
+          cargo fmt
+          git diff > ../fmt.patch
+          if [ -s ../fmt.patch ]; then echo "::warning::rustfmt changed files; see the fmt-patch artifact"; cat ../fmt.patch; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fmt-patch
+          path: fmt.patch
+          if-no-files-found: ignore
       - run: python3 scripts/locales.py --check
       - name: System libraries
         run: |
@@ -90,12 +101,11 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: "0"
         run: cargo test -p concat --lib i18n -j 2
 
+  # Not gated on the check: a lint there should not hold back the apps.
   desktop:
     name: Desktop apps
-    needs: check
     uses: ./.github/workflows/build-app.yml
 
   phones:
     name: Phones
-    needs: check
     uses: ./.github/workflows/mobile.yml

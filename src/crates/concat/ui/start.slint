@@ -714,6 +714,7 @@ component Rail inherits Rectangle {
 
     callback compose();
     callback open();
+    callback import-package();
 
     background: Theme.launch-panel;
 
@@ -754,6 +755,15 @@ component Rail inherits Rectangle {
             compact: root.compact;
             enabled: root.enabled;
             clicked => { root.open(); }
+        }
+        // A project carried over from another device as one zip; see
+        // concat_host::package.
+        RailItem {
+            label: I18n.t("studio.importPackage");
+            glyph: Glyph.import;
+            compact: root.compact;
+            enabled: root.enabled;
+            clicked => { root.import-package(); }
         }
     }
 }
@@ -1039,6 +1049,8 @@ export component StartScreen inherits Rectangle {
     callback open-recent(path: string);
     callback forget-recent(path: string);
     callback open-settings();
+    /// Unpack a project package made on this or another device.
+    callback import-package();
 
     /// A phone held upright, or a window squeezed that far: under this the
     /// rail is gone and its verbs sit on the heading's row.
@@ -1081,6 +1093,7 @@ export component StartScreen inherits Rectangle {
         compact: root.compact-rail;
         enabled: !root.busy;
         compose => { root.compose(); }
+        import-package => { root.import-package(); }
         open => { root.open(); }
     }
 
@@ -1142,6 +1155,19 @@ export component StartScreen inherits Rectangle {
                                 label: I18n.t("start.openProject");
                                 enabled: !root.busy;
                                 clicked => { root.open(); }
+                            }
+                        }
+
+                        // On a phone too: a package is a file the phone's
+                        // own picker can reach, unlike a project folder.
+                        if root.narrow: VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 0;
+                            BarAction {
+                                glyph: Glyph.import;
+                                label: I18n.t("studio.importPackage");
+                                enabled: !root.busy;
+                                clicked => { root.import-package(); }
                             }
                         }
 

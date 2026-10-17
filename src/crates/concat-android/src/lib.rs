@@ -217,10 +217,17 @@ mod picker {
     /// The pick in flight, waiting for Java to answer.
     static PENDING: Mutex<Option<Picked>> = Mutex::new(None);
 
-    /// Hands the window's crate a picker that runs on this activity.
+    /// Hands the window's crate a picker that runs on this activity, and
+    /// one for project packages: the same fragment, asking for zips.
     pub fn install(app: &AndroidApp) {
+        concat::install_file_picker(picker(app, false));
+        concat::install_package_picker(picker(app, true));
+    }
+
+    /// A picker on the fragment: `pickPackage` for a package, `pick` for media.
+    fn picker(app: &AndroidApp, package: bool) -> concat::FilePicker {
         let app = app.clone();
-        concat::install_file_picker(Box::new(move |on_picked| {
+        Box::new(move |on_picked| {
             let previous = PENDING
                 .lock()
                 .map(|mut slot| slot.replace(on_picked))
@@ -231,23 +238,32 @@ mod picker {
                 // it got nothing rather than left waiting for ever.
                 previous(Vec::new());
             }
-            if let Err(error) = pick(&app) {
+            if let Err(error) = pick(&app, package) {
                 log::error!("could not show the document picker: {error}");
                 if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
                     pending(Vec::new());
                 }
             }
-        }));
+        })
     }
 
-    fn pick(app: &AndroidApp) -> jni::errors::Result<()> {
+    fn pick(app: &AndroidApp, package: bool) -> jni::errors::Result<()> {
         super::java::with_class(app, |env, activity, class| {
-            env.call_static_method(
-                class,
-                jni_str!("pick"),
-                jni_sig!("(Landroid/app/Activity;)V"),
-                &[activity.into()],
-            )?;
+            if package {
+                env.call_static_method(
+                    class,
+                    jni_str!("pickPackage"),
+                    jni_sig!("(Landroid/app/Activity;)V"),
+                    &[activity.into()],
+                )?;
+            } else {
+                env.call_static_method(
+                    class,
+                    jni_str!("pick"),
+                    jni_sig!("(Landroid/app/Activity;)V"),
+                    &[activity.into()],
+                )?;
+            }
             Ok(())
         })
     }
@@ -304,6 +320,7 @@ mod publisher {
     /// Hands the window's crate the way to the media store, where this
     /// phone has one to write through.
     pub fn install(app: &AndroidApp) {
+        install_packages(app);
         let folder = match published_folder(app) {
             Ok(Some(folder)) => folder,
             Ok(None) => {
@@ -321,6 +338,38 @@ mod publisher {
         concat::install_export_publisher(concat::ExportPublisher {
             folder,
             publish: Box::new(move |path| publish(&app, path)),
+        });
+    }
+
+    /// The same for exported project packages: into Download/Concat.
+    fn install_packages(app: &AndroidApp) {
+        let folder = super::java::with_class(app, |env, _activity, class| {
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("packageFolder"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )?
+                .l()?;
+            if answer.is_null() {
+                return Ok(None);
+            }
+            let answer = env.cast_local::<JString>(answer)?;
+            Ok(Some(answer.mutf8_chars(env)?.to_string()))
+        });
+        let folder = match folder {
+            Ok(Some(folder)) => folder,
+            Ok(None) => return,
+            Err(error) => {
+                log::warn!("could not ask where packages go: {error}");
+                return;
+            }
+        };
+        let app = app.clone();
+        concat::install_package_publisher(concat::ExportPublisher {
+            folder,
+            publish: Box::new(move |path| publish_with(&app, path, true)),
         });
     }
 
@@ -346,16 +395,29 @@ mod publisher {
     /// `ConcatFiles.publishVideo`: the file's path under the phone's
     /// storage once it is in Movies, or why it could not be moved.
     fn publish(app: &AndroidApp, path: &Path) -> Result<String, String> {
+        publish_with(app, path, false)
+    }
+
+    /// `publishPackage` for a project package, `publishVideo` for a video.
+    fn publish_with(app: &AndroidApp, path: &Path, package: bool) -> Result<String, String> {
         let answer = super::java::with_class(app, |env, activity, class| {
             let path = env.new_string(path.to_string_lossy())?;
-            let answer = env
-                .call_static_method(
+            let answer = if package {
+                env.call_static_method(
+                    class,
+                    jni_str!("publishPackage"),
+                    jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)[Ljava/lang/String;"),
+                    &[activity.into(), (&path).into()],
+                )?
+            } else {
+                env.call_static_method(
                     class,
                     jni_str!("publishVideo"),
                     jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)[Ljava/lang/String;"),
                     &[activity.into(), (&path).into()],
                 )?
-                .l()?;
+            }
+            .l()?;
             let answer = env.cast_local::<JObjectArray<JString>>(answer)?;
             let mut out = Vec::new();
             for index in 0..answer.len(env)? {

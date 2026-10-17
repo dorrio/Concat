@@ -56,7 +56,7 @@ out=smoke-android
 wait_secs=45
 ready=""
 install=1
-package=app.concat.editor
+package=app.concat.editor.dev
 
 usage() {
   echo "usage: $0 [--out DIR] [--wait SECS] [--ready REGEX] [--no-install] [--package NAME] APK" >&2

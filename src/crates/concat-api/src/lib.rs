@@ -46,12 +46,12 @@ use concat_host::export::{self, Exporter};
 use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::session::EditorView;
 use concat_host::templates::{self, SlotFill};
-use concat_host::{ProjectInfo, Session, Titles, media, projects};
+use concat_host::{ProjectInfo, Session, Titles, media, package, projects};
 use concat_project::Command;
 use concat_project::model::VideoSettings;
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, PackageInfo, ParamInfo,
+    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, PackageInfo, PackageWritten, ParamInfo,
     Picture, Reply, Request, Response, Started, VersionInfo, Written,
 };
 
@@ -317,6 +317,12 @@ impl Api {
                 self.save(&path, name.as_deref())?;
                 Ok(Reply::Done(Done {}))
             }
+            Request::ProjectExportPackage { path, output } => {
+                Ok(Reply::Package(self.export_package(&path, &output)?))
+            }
+            Request::ProjectImportPackage { package, location } => {
+                view(self.import_package(&package, &location)?)
+            }
             Request::ProjectSetVideo { path, video } => {
                 view(self.session_mut(&path)?.set_video(video).map_err(refused)?)
             }
@@ -491,6 +497,35 @@ impl Api {
             .collect::<Result<Vec<SlotFill>, ApiError>>()?;
         let info =
             templates::instantiate(template, location, name, fills).map_err(ApiError::failed)?;
+        self.adopt(info)
+    }
+
+    /// [`Request::ProjectExportPackage`].
+    pub fn export_package(&self, path: &str, output: &str) -> Result<PackageWritten, ApiError> {
+        self.writable(output)?;
+        let session = self.session(path)?;
+        let written = package::export(
+            &session.document(),
+            &session.settings(),
+            session.path(),
+            Path::new(output),
+        )
+        .map_err(ApiError::failed)?;
+        Ok(PackageWritten {
+            path: written.path.to_string_lossy().into_owned(),
+            files: written.files,
+            bytes: written.bytes,
+        })
+    }
+
+    /// [`Request::ProjectImportPackage`].
+    pub fn import_package(
+        &mut self,
+        package: &str,
+        location: &str,
+    ) -> Result<EditorView, ApiError> {
+        self.writable(location)?;
+        let info = package::import(Path::new(package), location).map_err(ApiError::failed)?;
         self.adopt(info)
     }
 

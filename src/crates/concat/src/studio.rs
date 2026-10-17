@@ -34,8 +34,8 @@ use concat_effects::manifest::Kind as PackageKind;
 use concat_effects::manifest::ParamType;
 use concat_host::playback::ClipSpec;
 use concat_host::{
-    AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, projects,
-    templates,
+    AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, package,
+    projects, templates,
 };
 use concat_media::{Pyramid, jpeg};
 use concat_project::Command;
@@ -7627,6 +7627,138 @@ impl Studio {
         );
     }
 
+    /// Packs the open project and every file it uses into one zip, to
+    /// carry it to another device - a phone, another computer - and go on
+    /// editing there; see `concat_host::package`.
+    ///
+    /// A desktop asks where to write it. A phone has no such dialog: the
+    /// package is written beside the projects and then moved into the
+    /// phone's Download/Concat, where a file manager, the share sheet and a
+    /// USB cable all find it.
+    pub fn export_package(&mut self) {
+        if self.session.is_none() {
+            return;
+        }
+        // Words still being typed go in the package too.
+        self.flush_commit();
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let document = session.document();
+        let settings = session.settings();
+        let path = session.path().to_owned();
+        let suggested = package::file_name(&self.project_name);
+        let folder = std::path::Path::new(&path)
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from(&path));
+        let title = t("studio.exportPackage");
+        let family = t("studio.concatPackage");
+        crate::host::after_dialog(
+            move || {
+                if cfg!(any(target_os = "android", target_os = "ios")) {
+                    return Some(folder.join(&suggested));
+                }
+                let chosen = crate::platform::save_file(
+                    &title,
+                    &folder,
+                    &suggested,
+                    (family.as_str(), &[package::EXTENSION]),
+                )?;
+                Some(
+                    if chosen
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case(package::EXTENSION))
+                    {
+                        chosen
+                    } else {
+                        chosen.with_extension(package::EXTENSION)
+                    },
+                )
+            },
+            move |studio, _, _, output| {
+                studio.notify(&t("studio.exportingPackage"), false);
+                spawn(
+                    move || package::export(&document, &settings, &path, &output),
+                    |studio, _, _, result| match result {
+                        Ok(exported) => studio.package_written(exported),
+                        Err(error) => studio.notify(&error, true),
+                    },
+                );
+            },
+        );
+    }
+
+    /// A package is written: on a phone it moves on to Download/Concat; on
+    /// a desktop it is already where the person chose.
+    fn package_written(&mut self, exported: package::Exported) {
+        let size = crate::format::bytes(exported.bytes as f32);
+        let fallback = exported.path.to_string_lossy().into_owned();
+        let published = crate::platform::publish_package(exported.path.clone(), move |result| {
+            crate::host::on_ui(move |studio, _, _| match result {
+                Ok(place) => studio.notify(&tf("studio.exportedPackage", &[&place, &size]), false),
+                Err(error) => studio.notify(
+                    &tf("studio.packageStayed", &[&fallback, &error]),
+                    true,
+                ),
+            });
+        });
+        if !published {
+            let place = exported.path.to_string_lossy().into_owned();
+            let size = crate::format::bytes(exported.bytes as f32);
+            self.notify(&tf("studio.exportedPackage", &[&place, &size]), false);
+        }
+    }
+
+    /// Asks for a package made by [`Studio::export_package`] - here or on
+    /// another device - unpacks it as a new project under `location` and
+    /// opens it, closing (and saving) the project that was open.
+    pub fn import_package(location: String) {
+        let title = t("studio.importPackage");
+        let family = t("studio.concatPackage");
+        let _ = slint::invoke_from_event_loop(move || {
+            crate::platform::pick_package_async(&title, &family, move |paths| {
+                let Some(picked) = paths.into_iter().next() else {
+                    return;
+                };
+                crate::host::on_ui(move |studio, _, _| studio.unpack_package(picked, location));
+            });
+        });
+    }
+
+    fn unpack_package(&mut self, picked: std::path::PathBuf, location: String) {
+        if location.trim().is_empty() {
+            self.notify(&t("start.chooseWhereProjectFolder"), true);
+            return;
+        }
+        self.notify(&t("studio.importingPackage"), false);
+        spawn(
+            move || {
+                let _ = std::fs::create_dir_all(&location);
+                let result = package::import(&picked, &location);
+                // A phone's picker hands over a copy in the app's own
+                // Imported/; once unpacked it is only taking up room.
+                if cfg!(any(target_os = "android", target_os = "ios")) && result.is_ok() {
+                    let _ = std::fs::remove_file(&picked);
+                }
+                result
+            },
+            |studio, _, _, result| match result {
+                Ok(info) => {
+                    if studio.session.is_some() {
+                        studio.close_project();
+                    }
+                    let name = info.name.clone();
+                    match studio.open_project(info) {
+                        Ok(()) => studio.notify(&tf("studio.importedPackage", &[&name]), false),
+                        Err(error) => studio.notify(&error, true),
+                    }
+                }
+                Err(error) => studio.notify(&error, true),
+            },
+        );
+    }
+
     // ── notices ──
 
     /// Raises the bottom-right notice. Every caller is some other handler
@@ -9903,6 +10035,20 @@ impl Studio {
                     "template",
                     t("studio.saveAsTemplate"),
                     Glyph::Slot,
+                    "",
+                    true,
+                ),
+                row(
+                    "export-package",
+                    t("studio.exportPackage"),
+                    Glyph::Export,
+                    "",
+                    true,
+                ),
+                row(
+                    "import-package",
+                    t("studio.importPackage"),
+                    Glyph::Import,
                     "",
                     true,
                 ),

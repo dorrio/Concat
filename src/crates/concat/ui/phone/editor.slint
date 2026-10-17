@@ -201,6 +201,8 @@ export component PhoneEditor inherits Rectangle {
     callback open-settings();
     /// Back to the launch screen; the window saves on the way.
     callback close-project();
+    /// Pack the project and its media into one zip, for another device.
+    callback export-package();
 
     /// Which sheet is up, by name, or empty for none. The names are the
     /// library's pages - "media", "text", "effects", "filters",
@@ -320,6 +322,17 @@ export component PhoneEditor inherits Rectangle {
                     glyph: Glyph.settings;
                     label: I18n.t("common.settings");
                     clicked => { root.open-settings(); }
+                }
+            }
+
+            // Carry the edit to another device: the project and every file
+            // it uses, as one zip in Download/Concat.
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    glyph: Glyph.export;
+                    label: I18n.t("studio.exportPackage");
+                    clicked => { root.export-package(); }
                 }
             }
 

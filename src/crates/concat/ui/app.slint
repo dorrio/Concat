@@ -663,6 +663,7 @@ export component App inherits Window {
 
                 compose => { root.start-compose(); }
                 open => { root.start-open(); }
+                import-package => { root.app-menu-selected("import-package"); }
                 open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }
@@ -687,6 +688,7 @@ export component App inherits Window {
                 export-clicked => { root.export-clicked(); }
                 open-settings => { root.open-settings(); }
                 close-project => { root.app-menu-selected("close-project"); }
+                export-package => { root.app-menu-selected("export-package"); }
             }
         }
     }
