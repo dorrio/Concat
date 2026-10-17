@@ -146,9 +146,17 @@ export component PackageDialog inherits Modal {
             }
         }
 
+        // The footer, set off by a hairline and padded to the sections'
+        // own 14px gutter, as the export sheet's is.
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
         HorizontalLayout {
             alignment: end;
             spacing: 8px;
+            padding: 14px;
 
             Button {
                 label: I18n.t("common.cancel");
