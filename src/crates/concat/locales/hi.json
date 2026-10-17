@@ -486,6 +486,7 @@
   "start.openAProject": "कोई प्रोजेक्ट खोलें",
   "start.openProject": "प्रोजेक्ट खोलें",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "प्रोजेक्ट फ़ोल्डर अभी बनाया जाता है; एडिट अपने-आप उसमें सेव होता रहता है।",
   "start.projects": "प्रोजेक्ट",
   "start.removeFromList": "Remove from list",

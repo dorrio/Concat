@@ -486,6 +486,7 @@
   "start.openAProject": "Een project openen",
   "start.openProject": "Project openen",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "De projectmap wordt nu gemaakt; de montage wordt er automatisch in opgeslagen.",
   "start.projects": "Projecten",
   "start.removeFromList": "Remove from list",

@@ -2312,7 +2312,25 @@ impl Studio {
             return;
         }
         match projects::delete(&self.host.dirs.config, path) {
-            Ok(()) => self.notify(&tf("start.projectDeleted", &[&name]), false),
+            Ok(()) => {
+                // A phone's picked media lives in the app's shared Imported/
+                // folder, out of the person's reach: what no project uses
+                // any more goes with the project.
+                let (count, bytes) = if cfg!(any(target_os = "android", target_os = "ios")) {
+                    let shared = std::path::PathBuf::from(home_folder("Imported"));
+                    let roots = [std::path::PathBuf::from(&self.start.location)];
+                    projects::sweep_unused(&shared, &roots, &self.host.dirs.config)
+                } else {
+                    (0, 0)
+                };
+                log::info!("project: deleted {path}; swept {count} unused imports ({bytes} bytes)");
+                if count > 0 {
+                    let freed = crate::format::bytes(bytes as f32);
+                    self.notify(&tf("start.projectDeletedFreed", &[&name, &freed]), false);
+                } else {
+                    self.notify(&tf("start.projectDeleted", &[&name]), false);
+                }
+            }
             Err(error) => self.notify(&error, true),
         }
         self.recents = projects::list(&self.host.dirs.config);
@@ -7784,6 +7802,12 @@ impl Studio {
     ) {
         match package::summarize(&document) {
             Ok(summary) => {
+                log::info!(
+                    "package: summary of {project_path}: {} files ({} bytes), {} unused",
+                    summary.count(false),
+                    summary.bytes(false),
+                    summary.unused().0
+                );
                 let duration = concat_project::from_document(&document)
                     .map(|project| {
                         project
@@ -7873,6 +7897,7 @@ impl Studio {
 
     /// The sheet's switch.
     pub fn package_only_used(&mut self, on: bool) {
+        log::info!("package: only used media {on}");
         if let Some(sheet) = self.package_sheet.as_mut() {
             sheet.only_used = on;
         }
@@ -7881,8 +7906,14 @@ impl Studio {
     /// The sheet's "Choose where to save…": asks where, then packs.
     pub fn package_save(&mut self) {
         let Some(sheet) = self.package_sheet.take() else {
+            log::warn!("package: save pressed with no summary up");
             return;
         };
+        log::info!(
+            "package: saving, only used media {}: {} files",
+            sheet.only_used,
+            sheet.summary.count(sheet.only_used)
+        );
         let suggested = package::file_name(&sheet.settings.name);
         let folder = std::path::Path::new(&sheet.project_path)
             .parent()
@@ -7961,6 +7992,13 @@ impl Studio {
                     &output,
                     job.only_used,
                 )?;
+                log::info!(
+                    "package: wrote {} ({} files, {} bytes, only used {})",
+                    exported.path.display(),
+                    exported.files,
+                    exported.bytes,
+                    job.only_used
+                );
                 match destination {
                     Some(destination) => {
                         let written =

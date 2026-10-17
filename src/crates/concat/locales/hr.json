@@ -486,6 +486,7 @@
   "start.openAProject": "Otvori projekt",
   "start.openProject": "Open project",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "Mapa projekta stvara se sada; montaža se u nju autosprema.",
   "start.projects": "Projekti",
   "start.removeFromList": "Remove from list",

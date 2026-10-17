@@ -486,6 +486,7 @@
   "start.openAProject": "เปิดโปรเจกต์",
   "start.openProject": "เปิดโปรเจกต์",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "โฟลเดอร์โปรเจกต์จะถูกสร้างตอนนี้ และงานตัดต่อจะบันทึกอัตโนมัติลงในนั้น",
   "start.projects": "โปรเจกต์",
   "start.removeFromList": "Remove from list",

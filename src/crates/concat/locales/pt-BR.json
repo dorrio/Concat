@@ -486,6 +486,7 @@
   "start.openAProject": "Abrir um projeto",
   "start.openProject": "Abrir projeto",
   "start.projectDeleted": "“{0}” excluído",
+  "start.projectDeletedFreed": "“{0}” excluído · {1} liberados",
   "start.projectFolderCreatedNow": "A pasta do projeto é criada agora; a edição é salva nela automaticamente.",
   "start.projects": "Projetos",
   "start.removeFromList": "Tirar da lista",

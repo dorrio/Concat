@@ -486,6 +486,7 @@
   "start.openAProject": "پروجیکٹ کھولیں",
   "start.openProject": "پروجیکٹ کھولیں",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "پروجیکٹ فولڈر ابھی بنتا ہے؛ ایڈٹ خود بخود اسی میں محفوظ ہوتا ہے۔",
   "start.projects": "پروجیکٹس",
   "start.removeFromList": "Remove from list",

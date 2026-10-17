@@ -486,6 +486,7 @@
   "start.openAProject": "Mở dự án",
   "start.openProject": "Mở dự án",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "Thư mục dự án đã được tạo; các chỉnh sửa sẽ tự động lưu vào đó.",
   "start.projects": "Dự án",
   "start.removeFromList": "Remove from list",

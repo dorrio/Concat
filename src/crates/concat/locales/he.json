@@ -486,6 +486,7 @@
   "start.openAProject": "פתיחת פרויקט",
   "start.openProject": "פתיחת הפרויקט",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "תיקיית הפרויקט נוצרת עכשיו; העריכה נשמרת בה אוטומטית.",
   "start.projects": "פרויקטים",
   "start.removeFromList": "Remove from list",

@@ -486,6 +486,7 @@
   "start.openAProject": "Buka sebuah proyek",
   "start.openProject": "Buka proyek",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "Folder proyek dibuat sekarang; hasil edit tersimpan otomatis ke dalamnya.",
   "start.projects": "Proyek",
   "start.removeFromList": "Remove from list",

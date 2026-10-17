@@ -486,6 +486,7 @@
   "start.openAProject": "프로젝트 열기",
   "start.openProject": "Open project",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "프로젝트 폴더가 지금 만들어지고, 편집 내용은 그 안에 자동 저장됩니다.",
   "start.projects": "프로젝트",
   "start.removeFromList": "Remove from list",

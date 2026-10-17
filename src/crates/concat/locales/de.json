@@ -486,6 +486,7 @@
   "start.openAProject": "Projekt öffnen",
   "start.openProject": "Open project",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "Der Projektordner wird jetzt erstellt; der Schnitt speichert automatisch hinein.",
   "start.projects": "Projekte",
   "start.removeFromList": "Remove from list",

@@ -486,6 +486,7 @@
   "start.openAProject": "プロジェクトを開く",
   "start.openProject": "プロジェクトを開く",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "プロジェクトフォルダーは今作成され、編集内容はそこに自動保存されます。",
   "start.projects": "プロジェクト",
   "start.removeFromList": "Remove from list",

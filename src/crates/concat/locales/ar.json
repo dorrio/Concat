@@ -486,6 +486,7 @@
   "start.openAProject": "فتح مشروع",
   "start.openProject": "فتح المشروع",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "يُنشأ مجلد المشروع الآن؛ ويُحفظ التحرير فيه تلقائيًا.",
   "start.projects": "المشاريع",
   "start.removeFromList": "Remove from list",

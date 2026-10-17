@@ -486,6 +486,7 @@
   "start.openAProject": "打开项目",
   "start.openProject": "打开项目",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "项目文件夹现已创建，剪辑会自动保存到其中。",
   "start.projects": "项目",
   "start.removeFromList": "Remove from list",

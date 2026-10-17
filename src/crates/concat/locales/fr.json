@@ -486,6 +486,7 @@
   "start.openAProject": "Ouvrir un projet",
   "start.openProject": "Open project",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "Le dossier du projet est créé maintenant ; le montage s'y enregistre automatiquement.",
   "start.projects": "Projets",
   "start.removeFromList": "Remove from list",

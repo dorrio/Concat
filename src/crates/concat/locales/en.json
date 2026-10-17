@@ -486,6 +486,7 @@
   "start.openAProject": "Open a project",
   "start.openProject": "Open project",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "The project folder is created now; the edit autosaves into it.",
   "start.projects": "Projects",
   "start.removeFromList": "Remove from list",

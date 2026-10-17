@@ -486,6 +486,7 @@
   "start.openAProject": "Відкрити проєкт",
   "start.openProject": "Відкрити проєкт",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "Папку проєкту буде створено зараз; монтаж автоматично зберігається в неї.",
   "start.projects": "Проєкти",
   "start.removeFromList": "Remove from list",

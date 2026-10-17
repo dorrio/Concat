@@ -486,6 +486,7 @@
   "start.openAProject": "打開專案",
   "start.openProject": "打開專案",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "專案資料夾現已建立，剪輯會自動儲存到其中。",
   "start.projects": "專案",
   "start.removeFromList": "Remove from list",

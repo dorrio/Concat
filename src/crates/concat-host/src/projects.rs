@@ -300,6 +300,69 @@ pub fn delete(config: &Path, path: &str) -> Result<(), String> {
     forget(config, path)
 }
 
+/// Deletes the files in `shared` that no project uses any more, and says
+/// how many went and how many bytes that freed.
+///
+/// A phone copies every file picked with Media into one shared folder of
+/// the app's own (`Imported/`), which nothing else on the phone can reach,
+/// so a deleted project's footage would stay there for good. "Uses" is
+/// read from every project there is: each folder under the `roots` (where
+/// the app keeps its projects) and each project on the recents list; a
+/// media or font path in any of them keeps its file. Only plain files
+/// directly inside `shared` are considered.
+pub fn sweep_unused(shared: &Path, roots: &[PathBuf], config: &Path) -> (usize, u64) {
+    let Ok(entries) = std::fs::read_dir(shared) else {
+        return (0, 0);
+    };
+    let mut folders: Vec<PathBuf> = read_recents(config)
+        .into_iter()
+        .map(|entry| PathBuf::from(entry.path))
+        .collect();
+    for root in roots {
+        if let Ok(children) = std::fs::read_dir(root) {
+            folders.extend(children.filter_map(|child| child.ok()).map(|child| child.path()));
+        }
+    }
+    let mut used: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    for folder in folders.iter().filter(|folder| is_project(folder)) {
+        let Ok(Some(document)) = read_document(&folder.to_string_lossy()) else {
+            // A project that cannot be read might use anything: keep all.
+            return (0, 0);
+        };
+        for section in ["media", "fonts"] {
+            let items = document.get(section).and_then(serde_json::Value::as_array);
+            for item in items.into_iter().flatten() {
+                if let Some(path) = item.get("path").and_then(serde_json::Value::as_str)
+                    && !path.is_empty()
+                {
+                    let path = Path::new(path);
+                    used.insert(path.canonicalize().unwrap_or_else(|_| path.to_path_buf()));
+                }
+            }
+        }
+    }
+
+    let (mut count, mut bytes) = (0, 0);
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+        if used.contains(&key) {
+            continue;
+        }
+        if std::fs::remove_file(&path).is_ok() {
+            count += 1;
+            bytes += meta.len();
+        }
+    }
+    (count, bytes)
+}
+
 fn read_recents(config: &Path) -> Vec<ProjectInfo> {
     // A missing or corrupt list is not an error worth showing anyone; it just
     // means there is no history yet.
@@ -494,6 +557,31 @@ mod tests {
         delete(&config, &info.path).unwrap();
         assert!(!Path::new(&info.path).exists());
         assert!(list(&config).is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn sweep_keeps_what_any_project_uses() {
+        let base = std::env::temp_dir().join(format!("concat-sweep-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let config = base.join("config");
+        let location = base.join("projects");
+        let shared = base.join("Imported");
+        std::fs::create_dir_all(&shared).unwrap();
+        let kept = shared.join("kept.mp4");
+        let orphan = shared.join("orphan.mp4");
+        std::fs::write(&kept, b"keep").unwrap();
+        std::fs::write(&orphan, b"orphan!").unwrap();
+
+        let info = create(location.to_str().unwrap(), "Uses one", 1080, 1920, 30, 1).unwrap();
+        let mut document = read_document(&info.path).unwrap().unwrap();
+        document["media"] = serde_json::json!([{ "id": "m1", "path": kept.to_string_lossy() }]);
+        save(&info.path, &document).unwrap();
+
+        let (count, bytes) = sweep_unused(&shared, &[location.clone()], &config);
+        assert_eq!((count, bytes), (1, 7));
+        assert!(kept.is_file());
+        assert!(!orphan.exists());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -486,6 +486,7 @@
   "start.openAProject": "باز کردن یک پروژه",
   "start.openProject": "باز کردن پروژه",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "پوشه پروژه اکنون ساخته می‌شود و ویرایش به‌صورت Auto Save داخل آن ذخیره می‌شود.",
   "start.projects": "پروژه‌ها",
   "start.removeFromList": "Remove from list",

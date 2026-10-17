@@ -486,6 +486,7 @@
   "start.openAProject": "একটি প্রকল্প খুলুন",
   "start.openProject": "প্রকল্প খুলুন",
   "start.projectDeleted": "Deleted “{0}”",
+  "start.projectDeletedFreed": "Deleted “{0}” · {1} freed",
   "start.projectFolderCreatedNow": "প্রকল্প ফোল্ডার এখন তৈরি হয়েছে; সম্পাদনা এতে স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়।",
   "start.projects": "প্রকল্পসমূহ",
   "start.removeFromList": "Remove from list",
